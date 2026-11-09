@@ -1,0 +1,24 @@
+# Entornos virtuales
+.venv/
+venv/
+
+# Caché de ejecución de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Configuraciones locales de Visual Studio Code
+.vscode/
+
+# Base de datos local (Evita subir los eventos de prueba de SQLite)
+*.db
+*.sqlite3
+
+# Archivos multimedia pesados (Pruebas de cámara)
+*.mp4
+*.avi
+*.mov
+
+# Logs y archivos de error
+*.log
