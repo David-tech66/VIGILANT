@@ -4,6 +4,7 @@ from src.ui.main_window import MainWindow
 from src.vision.video_worker import VideoWorker
 
 def main():
+    
     # 1. Iniciar el motor gráfico de PySide6
     app = QApplication(sys.argv)
 

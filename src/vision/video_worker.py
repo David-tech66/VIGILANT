@@ -2,11 +2,12 @@ import cv2
 import mediapipe as mp
 import numpy as np
 from PySide6.QtCore import QThread, Signal
-from src.analytics.metrics import obtener_ear_promedio
+from src.analytics.metrics import obtener_ear_promedio, obtener_mar
 
 class VideoWorker(QThread):
-    # El canal seguro de comunicación: envía un fotograma (matriz) y el número EAR
-    frame_processed = Signal(np.ndarray, float)
+    
+    # El canal seguro de comunicación: envía un fotograma (matriz), el número EAR y el MAR
+    frame_processed = Signal(np.ndarray, float, float)
 
     def __init__(self):
         super().__init__()
@@ -16,14 +17,16 @@ class VideoWorker(QThread):
         mp_face_mesh = mp.solutions.face_mesh
         mp_drawing = mp.solutions.drawing_utils
         mp_drawing_styles = mp.solutions.drawing_styles
-        
-        cap = cv2.VideoCapture(0)
+
+        # Conectando a la cámara externa RadioShack
+        cap = cv2.VideoCapture(1)
 
         with mp_face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5) as face_mesh:
+            max_num_faces = 1,
+            refine_landmarks = True,
+            min_detection_confidence = 0.5,
+            min_tracking_confidence = 0.5
+        ) as face_mesh:
 
             while self._is_running and cap.isOpened():
                 success, image = cap.read()
@@ -37,23 +40,41 @@ class VideoWorker(QThread):
                 image_rgb.flags.writeable = True
                 image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
                 
-                ear_actual = 0.0
+                # Estado por defecto: -1.0 significa "Rostro NO detectado"
+                ear_actual = -1.0
+                mar_actual = -1.0
 
                 if results.multi_face_landmarks:
                     for face_landmarks in results.multi_face_landmarks:
-                        # 1. Calcular el EAR
-                        ear_actual = obtener_ear_promedio(face_landmarks, image.shape[1], image.shape[0])
+                        
+                        # # 1. Extraer biométrica completa para calcular el EAR
+                        ear_actual = obtener_ear_promedio(
+                            face_landmarks, 
+                            image.shape[1], 
+                            image.shape[0]
+                        )
+
+                        mar_actual = obtener_mar(
+                            face_landmarks, 
+                            image.shape[1], 
+                            image.shape[0]
+                        )
                         
                         # 2. Dibujar la malla sobre el fotograma original
                         mp_drawing.draw_landmarks(
-                            image=image,
-                            landmark_list=face_landmarks,
-                            connections=mp_face_mesh.FACEMESH_TESSELATION,
-                            landmark_drawing_spec=None,
-                            connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style())
+                            image = image,
+                            landmark_list = face_landmarks,
+                            connections = mp_face_mesh.FACEMESH_TESSELATION,
+                            landmark_drawing_spec = None,
+                            connection_drawing_spec = mp_drawing_styles.get_default_face_mesh_tesselation_style()
+                        )
 
                 # 3. Emitir el paquete de datos al Hilo Principal
-                self.frame_processed.emit(image, ear_actual)
+                self.frame_processed.emit(
+                    image, 
+                    ear_actual, 
+                    mar_actual
+                )
 
         cap.release()
 
