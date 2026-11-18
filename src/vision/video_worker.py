@@ -2,24 +2,31 @@ import cv2
 import mediapipe as mp
 import numpy as np
 from PySide6.QtCore import QThread, Signal
-from src.analytics.metrics import obtener_ear_promedio, obtener_mar
+from src.analytics.metrics import(
+    obtener_ear_promedio, 
+    obtener_mar, 
+    obtener_pitch
+)
 
 class VideoWorker(QThread):
     
-    # El canal seguro de comunicación: envía un fotograma (matriz), el número EAR y el MAR
-    frame_processed = Signal(np.ndarray, float, float)
+    # El canal seguro de comunicación: envía un fotograma (matriz), el número EAR, el MAR y el PITCH en angulos
+    frame_processed = Signal(np.ndarray, float, float, float)
 
-    def __init__(self):
+    def __init__(self, camera_index = 1):
         super().__init__()
         self._is_running = True
+        self.camera_index = camera_index
 
     def run(self):
         mp_face_mesh = mp.solutions.face_mesh
         mp_drawing = mp.solutions.drawing_utils
         mp_drawing_styles = mp.solutions.drawing_styles
 
-        # Conectando a la cámara externa RadioShack
-        cap = cv2.VideoCapture(1)
+        # Intenta abrir la cámara configurada; si falla, usa la integrada (0)
+        cap = cv2.VideoCapture(self.camera_index)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(0)
 
         with mp_face_mesh.FaceMesh(
             max_num_faces = 1,
@@ -43,8 +50,10 @@ class VideoWorker(QThread):
                 # Estado por defecto: -1.0 significa "Rostro NO detectado"
                 ear_actual = -1.0
                 mar_actual = -1.0
+                pitch_actual = 0.0
 
                 if results.multi_face_landmarks:
+                    h, w, _ = image.shape
                     for face_landmarks in results.multi_face_landmarks:
                         
                         # # 1. Extraer biométrica completa para calcular el EAR
@@ -58,6 +67,12 @@ class VideoWorker(QThread):
                             face_landmarks, 
                             image.shape[1], 
                             image.shape[0]
+                        )
+
+                        pitch_actual = obtener_pitch(
+                            face_landmarks, 
+                            w, 
+                            h
                         )
                         
                         # 2. Dibujar la malla sobre el fotograma original
@@ -73,7 +88,8 @@ class VideoWorker(QThread):
                 self.frame_processed.emit(
                     image, 
                     ear_actual, 
-                    mar_actual
+                    mar_actual,
+                    pitch_actual
                 )
 
         cap.release()
