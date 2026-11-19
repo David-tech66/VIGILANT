@@ -88,7 +88,6 @@ class VideoWorker(QThread):
                     success, image = cap.read()
 
                     if not success:
-
                         # Si es archivo de video, reinicia en bucle sin matar el hilo
                         if isinstance(fuente_actual, str):
                             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -98,6 +97,10 @@ class VideoWorker(QThread):
                         # Si es cámara, espera brevemente a que se recupere o cambie la fuente
                         self.msleep(50)
                         continue
+
+                    # Efecto espejo solo cuando la lectura fue exitosa
+                    if isinstance(fuente_actual, int):
+                        image = cv2.flip(image, 1)
 
                     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                     image_rgb.flags.writeable = False
