@@ -82,12 +82,22 @@ class VideoWorker(QThread):
                         cap = self._abrir_fuente(fuente_actual)
 
                     if not cap.isOpened():
-                        break
+                        self.msleep(100)
+                        continue
 
                     success, image = cap.read()
 
                     if not success:
-                        break
+
+                        # Si es archivo de video, reinicia en bucle sin matar el hilo
+                        if isinstance(fuente_actual, str):
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            self.msleep(30)
+                            continue
+                        
+                        # Si es cámara, espera brevemente a que se recupere o cambie la fuente
+                        self.msleep(50)
+                        continue
 
                     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                     image_rgb.flags.writeable = False
