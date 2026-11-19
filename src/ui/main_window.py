@@ -11,12 +11,17 @@ from PySide6.QtWidgets import (
     QWidget, QFrame, QPushButton, QComboBox,
     QListWidget, QListWidgetItem, QProgressBar
 )
-
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtCore import Qt, Slot, Signal
+from PySide6.QtCore import Qt, Slot, Signal, QUrl
+
+try:
+    from PySide6.QtMultimedia import QSoundEffect
+    AUDIO_DISPONIBLE = True
+except ImportError:
+    QSoundEffect = None
+    AUDIO_DISPONIBLE = False
 
 from src.analytics.temporal_buffer import DrowsinessAnalyzer
-
 
 try:
     import pyqtgraph as pg
@@ -34,32 +39,32 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("VIGILANT v1.0 | Sistema de Monitoreo")
-        self.setMinimumSize(1150, 750)
-        self.resize(1400, 900)
+        self.setMinimumSize(1080, 680)
+        self.resize(1360, 820)
 
+        self.raiz_proyecto = Path(__file__).resolve().parents[2]
         self.analyzer = DrowsinessAnalyzer()
 
         self.historial_ear = deque(maxlen=120)
-        self.ultimo_incidente = None
         self.ultimo_pixmap = None
         self.inicio_calibracion = None
         self.ultimo_frame_tiempo = None
+        self._ultimo_estilo_fatiga = None
+
+        # Control de alertas sonoras
+        self.audio_silenciado = False
+        self.sonido_fatiga = None
+        self.sonido_critico = None
 
         self._inicializar_base_datos()
+        self._inicializar_audio()
         self._cargar_estilos()
         self._construir_ui()
 
     # BASE DE DATOS
 
     def _inicializar_base_datos(self):
-
-        ruta_db = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "database"
-            / "vigilant.db"
-        )
-
+        ruta_db = self.raiz_proyecto / "src" / "database" / "vigilant.db"
         ruta_db.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(ruta_db)
 
@@ -71,36 +76,107 @@ class MainWindow(QMainWindow):
                 hora TEXT NOT NULL
             )
         """)
-
         self.db.commit()
 
+    # SISTEMA DE AUDIO (QSoundEffect)
+
+    def _inicializar_audio(self):
+        if not AUDIO_DISPONIBLE:
+            print("[VIGILANT] QtMultimedia no disponible; alertas sonoras desactivadas.")
+            return
+
+        carpeta_audio = self.raiz_proyecto / "assets" / "audio"
+        ruta_fatiga = carpeta_audio / "aviso_fatiga.wav"
+        ruta_critica = carpeta_audio / "alerta_critica.wav"
+
+        if ruta_fatiga.exists():
+            self.sonido_fatiga = QSoundEffect(self)
+            self.sonido_fatiga.setSource(QUrl.fromLocalFile(str(ruta_fatiga)))
+            self.sonido_fatiga.setLoopCount(1)
+            self.sonido_fatiga.setVolume(0.85)
+        else:
+            print(f"[VIGILANT] Aviso: no se encontró {ruta_fatiga}")
+
+        if ruta_critica.exists():
+            self.sonido_critico = QSoundEffect(self)
+            self.sonido_critico.setSource(QUrl.fromLocalFile(str(ruta_critica)))
+            loop_infinito = (
+                QSoundEffect.Loop.Infinite
+                if hasattr(QSoundEffect, "Loop")
+                else QSoundEffect.Infinite
+            )
+            self.sonido_critico.setLoopCount(loop_infinito)
+            self.sonido_critico.setVolume(1.0)
+        else:
+            print(f"[VIGILANT] Aviso: no se encontró {ruta_critica}")
+
+    def _detener_alertas(self):
+        if self.sonido_critico is not None and self.sonido_critico.isPlaying():
+            self.sonido_critico.stop()
+        if self.sonido_fatiga is not None and self.sonido_fatiga.isPlaying():
+            self.sonido_fatiga.stop()
+
+    def _gestionar_alertas_sonoras(self, resultado):
+        if self.audio_silenciado or resultado["calibrando"]:
+            self._detener_alertas()
+            return
+
+        estado = resultado["estado"]
+
+        # Nivel 2 (Crítico): bucle continuo mientras persista MICROSUEÑO
+        if estado == DrowsinessAnalyzer.ESTADO_MICROSUEÑO:
+            if self.sonido_fatiga is not None and self.sonido_fatiga.isPlaying():
+                self.sonido_fatiga.stop()
+            if self.sonido_critico is not None and not self.sonido_critico.isPlaying():
+                self.sonido_critico.play()
+            return
+
+        # Al salir de MICROSUEÑO, cortar la alarma crítica inmediatamente
+        if self.sonido_critico is not None and self.sonido_critico.isPlaying():
+            self.sonido_critico.stop()
+
+        # Nivel 1 (Fatiga temprana): reproducir una sola vez por incidente nuevo
+        if (
+            resultado["nuevo_incidente"]
+            and resultado["tipo_incidente"] in ("Bostezo Prolongado", "Cabeceo")
+            and self.sonido_fatiga is not None
+            and not self.sonido_fatiga.isPlaying()
+        ):
+            self.sonido_fatiga.play()
+
+    def _alternar_audio(self):
+        self.audio_silenciado = not self.audio_silenciado
+        if self.audio_silenciado:
+            self._detener_alertas()
+            self.audio_button.setText("AUDIO: OFF")
+            self.audio_button.setObjectName("audio-off")
+        else:
+            self.audio_button.setText("AUDIO: ON")
+            self.audio_button.setObjectName("audio-on")
+
+        self.audio_button.style().unpolish(self.audio_button)
+        self.audio_button.style().polish(self.audio_button)
+
     def _cargar_estilos(self):
-
-        ruta_style = (
-            Path(__file__).resolve().parents[2]
-            / "assets"
-            / "styles"
-            / "Style.css"
-        )
-
-        with open(ruta_style, "r", encoding="utf-8") as archivo:
-            self.setStyleSheet(archivo.read())
+        ruta_style = self.raiz_proyecto / "assets" / "styles" / "Style.css"
+        if ruta_style.exists():
+            with open(ruta_style, "r", encoding="utf-8") as archivo:
+                self.setStyleSheet(archivo.read())
 
     # CONSTRUCCIÓN DE INTERFAZ
 
     def _construir_ui(self):
-
         central = QWidget()
         self.setCentralWidget(central)
 
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(16, 12, 16, 10)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(16, 10, 16, 8)
+        main_layout.setSpacing(8)
 
         # BARRA SUPERIOR
 
         header = QHBoxLayout()
-        header.setSpacing(12)
+        header.setSpacing(10)
 
         logo_layout = QVBoxLayout()
         logo_layout.setSpacing(1)
@@ -122,31 +198,31 @@ class MainWindow(QMainWindow):
 
         self.source_select = QComboBox()
         self.source_select.setObjectName("source-select")
-
         self.source_select.addItem("Cámara USB", 1)
         self.source_select.addItem("Cámara integrada", 0)
         self.source_select.addItem(
             "Video Benchmark",
-            "assets/benchmark.mp4"
+            str(self.raiz_proyecto / "assets" / "benchmark.mp4")
         )
-
-        self.source_select.currentIndexChanged.connect(
-            self._on_fuente_cambiada
-        )
+        self.source_select.currentIndexChanged.connect(self._on_fuente_cambiada)
 
         header.addWidget(source_title)
         header.addWidget(self.source_select)
 
+        self.audio_button = QPushButton("AUDIO: ON")
+        self.audio_button.setObjectName("audio-on")
+        self.audio_button.setCursor(Qt.PointingHandCursor)
+        self.audio_button.clicked.connect(self._alternar_audio)
+        header.addWidget(self.audio_button)
+
         self.status_label = QLabel("ESPERANDO VIDEO")
         self.status_label.setObjectName("status-normal")
         self.status_label.setAlignment(Qt.AlignCenter)
-
         header.addWidget(self.status_label)
 
         self.fps_label = QLabel("FPS: --")
         self.fps_label.setObjectName("fps-label")
         self.fps_label.setAlignment(Qt.AlignCenter)
-
         header.addWidget(self.fps_label)
 
         main_layout.addLayout(header)
@@ -154,7 +230,6 @@ class MainWindow(QMainWindow):
         separator = QFrame()
         separator.setObjectName("separator")
         separator.setFixedHeight(2)
-
         main_layout.addWidget(separator)
 
         # CONTENIDO PRINCIPAL
@@ -173,28 +248,18 @@ class MainWindow(QMainWindow):
         video_card.setObjectName("video-card")
 
         video_layout = QVBoxLayout(video_card)
-        video_layout.setContentsMargins(12, 10, 12, 12)
-        video_layout.setSpacing(8)
-
-        video_header = QHBoxLayout()
+        video_layout.setContentsMargins(12, 10, 12, 10)
+        video_layout.setSpacing(6)
 
         video_title = QLabel("VISOR DE MONITOREO FACIAL")
         video_title.setObjectName("section")
+        video_layout.addWidget(video_title)
 
-        video_header.addWidget(video_title)
-        video_header.addStretch()
-
-        video_layout.addLayout(video_header)
-
-        points_label = QLabel(
-            "MEDIAPIPE FACE MESH • OJOS • BOCA • POSE"
-        )
+        points_label = QLabel("MEDIAPIPE FACE MESH • OJOS • BOCA • POSE")
         points_label.setObjectName("muted")
-
         video_layout.addWidget(points_label)
 
         camera_info = QHBoxLayout()
-
         self.camera_label = QLabel("● CÁMARA ACTIVA")
         self.camera_label.setObjectName("camera-info")
 
@@ -204,16 +269,12 @@ class MainWindow(QMainWindow):
         camera_info.addWidget(self.camera_label)
         camera_info.addStretch()
         camera_info.addWidget(self.event_label)
-
         video_layout.addLayout(camera_info)
 
-        self.video_label = QLabel(
-            "Esperando señal de cámara..."
-        )
+        self.video_label = QLabel("Esperando señal de cámara...")
         self.video_label.setObjectName("video")
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setMinimumSize(450, 250)
-
+        self.video_label.setMinimumSize(450, 240)
         video_layout.addWidget(self.video_label, 1)
 
         left_panel.addWidget(video_card, 3)
@@ -225,10 +286,9 @@ class MainWindow(QMainWindow):
 
         graph_layout = QVBoxLayout(graph_card)
         graph_layout.setContentsMargins(12, 10, 12, 10)
-        graph_layout.setSpacing(8)
+        graph_layout.setSpacing(6)
 
         graph_header = QHBoxLayout()
-
         graph_title = QLabel("OSCILOSCOPIO EAR EN TIEMPO REAL")
         graph_title.setObjectName("section")
 
@@ -239,62 +299,43 @@ class MainWindow(QMainWindow):
 
         graph_header.addWidget(graph_title, 1)
         graph_header.addWidget(self.graph_threshold_label)
-
         graph_layout.addLayout(graph_header)
 
         if PYQTGRAPH_DISPONIBLE:
-
             self.graph = pg.PlotWidget()
             self.graph.setObjectName("ear-graph")
             self.graph.setBackground("#030A13")
             self.graph.showGrid(x=True, y=True, alpha=0.20)
-            self.graph.setLabel("left", "Valor EAR", color="#9CB2CA")
+            self.graph.setLabel("left", "EAR", color="#9CB2CA")
             self.graph.setLabel("bottom", "Muestras", color="#9CB2CA")
             self.graph.setYRange(0, 0.5)
             self.graph.setMouseEnabled(x=False, y=False)
             self.graph.setMenuEnabled(False)
-
             self.graph.getAxis("left").setTextPen("#9CB2CA")
             self.graph.getAxis("bottom").setTextPen("#9CB2CA")
 
-            self.curva_ear = self.graph.plot(
-                pen=pg.mkPen("#38BDF8", width=2)
-            )
-
+            self.curva_ear = self.graph.plot(pen=pg.mkPen("#38BDF8", width=2))
             self.linea_umbral = pg.InfiniteLine(
                 pos=self.analyzer.ear_umbral,
                 angle=0,
-                pen=pg.mkPen(
-                    "#EF4444",
-                    width=2,
-                    style=Qt.DotLine
-                )
+                pen=pg.mkPen("#EF4444", width=2, style=Qt.DotLine)
             )
-
             self.graph.addItem(self.linea_umbral)
             graph_layout.addWidget(self.graph, 1)
-
         else:
-
             self.graph = None
             self.curva_ear = None
             self.linea_umbral = None
-
-            graph_message = QLabel(
-                "Instala pyqtgraph para visualizar el osciloscopio EAR"
-            )
+            graph_message = QLabel("Instala pyqtgraph para visualizar el osciloscopio EAR")
             graph_message.setObjectName("muted")
             graph_message.setAlignment(Qt.AlignCenter)
-
             graph_layout.addWidget(graph_message)
 
         self.graph_state = QLabel("NORMAL")
         self.graph_state.setObjectName("graph-state")
         self.graph_state.setAlignment(Qt.AlignCenter)
 
-        self.graph_description = QLabel(
-            "Vigilia activa • Monitoreo estable"
-        )
+        self.graph_description = QLabel("Vigilia activa • Monitoreo estable")
         self.graph_description.setObjectName("graph-description")
         self.graph_description.setAlignment(Qt.AlignCenter)
         self.graph_description.setWordWrap(True)
@@ -303,7 +344,6 @@ class MainWindow(QMainWindow):
         graph_layout.addWidget(self.graph_description)
 
         left_panel.addWidget(graph_card, 2)
-
         body.addLayout(left_panel, 3)
 
         # COLUMNA DERECHA
@@ -317,8 +357,8 @@ class MainWindow(QMainWindow):
         state_card.setObjectName("state-card")
 
         state_layout = QVBoxLayout(state_card)
-        state_layout.setContentsMargins(12, 10, 12, 10)
-        state_layout.setSpacing(5)
+        state_layout.setContentsMargins(12, 8, 12, 8)
+        state_layout.setSpacing(4)
 
         state_title = QLabel("ESTADO DEL CONDUCTOR")
         state_title.setObjectName("section")
@@ -326,11 +366,8 @@ class MainWindow(QMainWindow):
         self.state_label = QLabel("EN ESPERA")
         self.state_label.setObjectName("state-title")
         self.state_label.setAlignment(Qt.AlignCenter)
-        self.state_label.setWordWrap(True)
 
-        self.state_description = QLabel(
-            "Esperando datos biométricos"
-        )
+        self.state_description = QLabel("Esperando datos biométricos")
         self.state_description.setObjectName("state-description")
         self.state_description.setAlignment(Qt.AlignCenter)
         self.state_description.setWordWrap(True)
@@ -339,46 +376,44 @@ class MainWindow(QMainWindow):
         state_layout.addWidget(self.state_label)
         state_layout.addWidget(self.state_description)
 
-        right_panel.addWidget(state_card, 1)
+        right_panel.addWidget(state_card)
 
-        # TELEMETRÍA BIOMÉTRICA
+        # TELEMETRÍA BIOMÉTRICA (3 columnas horizontales para evitar solapamientos)
 
         metrics_card = QFrame()
         metrics_card.setObjectName("metrics-card")
 
         metrics_layout = QVBoxLayout(metrics_card)
-        metrics_card.setMinimumHeight(290)
-        metrics_layout.setContentsMargins(12, 10, 12, 12)
+        metrics_layout.setContentsMargins(12, 10, 12, 10)
         metrics_layout.setSpacing(8)
 
         metrics_title = QLabel("TELEMETRÍA BIOMÉTRICA")
         metrics_title.setObjectName("section")
-
         metrics_layout.addWidget(metrics_title)
 
-        self.ear_label = self._crear_metrica(
-            metrics_layout, "EAR (OJOS)", "0.000", "< 0.200"
+        metrics_row = QHBoxLayout()
+        metrics_row.setSpacing(8)
+
+        self.ear_label, self.ear_condition_label = self._crear_metrica(
+            metrics_row, "EAR (OJOS)", "0.000", f"< {self.analyzer.ear_umbral:.3f}"
+        )
+        self.mar_label, _ = self._crear_metrica(
+            metrics_row, "MAR (BOCA)", "0.000", f"> {self.analyzer.mar_umbral:.3f}"
+        )
+        self.pitch_label, _ = self._crear_metrica(
+            metrics_row, "PITCH", "0.0°", f"< {self.analyzer.pitch_umbral:.1f}°"
         )
 
-        self.mar_label = self._crear_metrica(
-            metrics_layout, "MAR (BOCA)", "0.000", "> 0.600"
-        )
-
-        self.pitch_label = self._crear_metrica(
-            metrics_layout, "PITCH", "0.0°", "< -15.0°"
-        )
+        metrics_layout.addLayout(metrics_row)
 
         fatigue_separator = QFrame()
         fatigue_separator.setObjectName("inner-separator")
         fatigue_separator.setFixedHeight(1)
-
         metrics_layout.addWidget(fatigue_separator)
 
         fatigue_layout = QHBoxLayout()
-
         fatigue_title = QLabel("Fatiga reciente (60s)")
         fatigue_title.setObjectName("metric-title")
-        fatigue_title.setWordWrap(True)
 
         self.fatigue_label = QLabel("NO • Límite 1.5s")
         self.fatigue_label.setObjectName("fatigue-normal")
@@ -386,10 +421,9 @@ class MainWindow(QMainWindow):
 
         fatigue_layout.addWidget(fatigue_title, 1)
         fatigue_layout.addWidget(self.fatigue_label)
-
         metrics_layout.addLayout(fatigue_layout)
 
-        right_panel.addWidget(metrics_card, 3)
+        right_panel.addWidget(metrics_card)
 
         # CALIBRACIÓN DINÁMICA
 
@@ -398,23 +432,17 @@ class MainWindow(QMainWindow):
 
         calibration_layout = QVBoxLayout(calibration_card)
         calibration_layout.setContentsMargins(12, 10, 12, 10)
-        calibration_layout.setSpacing(7)
+        calibration_layout.setSpacing(6)
 
         calibration_title = QLabel("CALIBRACIÓN DINÁMICA EAR")
         calibration_title.setObjectName("section")
 
-        self.calibration_button = QPushButton(
-            "Calibrar EAR Dinámico (3 s)"
-        )
+        self.calibration_button = QPushButton("Calibrar EAR Dinámico (3 s)")
         self.calibration_button.setObjectName("calibration-button")
-        self.calibration_button.clicked.connect(
-            self._iniciar_calibracion
-        )
+        self.calibration_button.clicked.connect(self._iniciar_calibracion)
 
         self.calibration_progress = QProgressBar()
-        self.calibration_progress.setObjectName(
-            "calibration-progress"
-        )
+        self.calibration_progress.setObjectName("calibration-progress")
         self.calibration_progress.setRange(0, 100)
         self.calibration_progress.setValue(0)
 
@@ -428,7 +456,7 @@ class MainWindow(QMainWindow):
         calibration_layout.addWidget(self.calibration_progress)
         calibration_layout.addWidget(self.threshold_label)
 
-        right_panel.addWidget(calibration_card, 2)
+        right_panel.addWidget(calibration_card)
 
         # BITÁCORA DE INCIDENTES
 
@@ -437,10 +465,9 @@ class MainWindow(QMainWindow):
 
         log_layout = QVBoxLayout(log_card)
         log_layout.setContentsMargins(12, 9, 12, 9)
-        log_layout.setSpacing(7)
+        log_layout.setSpacing(6)
 
         log_header = QHBoxLayout()
-
         log_title = QLabel("BITÁCORA DE INCIDENTES")
         log_title.setObjectName("section")
 
@@ -453,18 +480,16 @@ class MainWindow(QMainWindow):
 
         self.log_list = QListWidget()
         self.log_list.setObjectName("log-list")
-        self.log_list.setMinimumHeight(100)
+        self.log_list.setMinimumHeight(90)
 
         log_layout.addLayout(log_header)
         log_layout.addWidget(self.log_list, 1)
 
-        right_panel.addWidget(log_card, 3)
-
+        right_panel.addWidget(log_card, 1)
         body.addLayout(right_panel, 2)
-
         main_layout.addLayout(body, 1)
 
-        # INFORMACIÓN INFERIOR
+        # PIE DE PÁGINA
 
         footer = QLabel(
             "VIGILANT v1.0  |  MEDIAPIPE FACE MESH  |  "
@@ -472,200 +497,149 @@ class MainWindow(QMainWindow):
         )
         footer.setObjectName("footer")
         footer.setAlignment(Qt.AlignCenter)
-
         main_layout.addWidget(footer)
 
         self._cargar_logs()
 
-    # CREAR MÉTRICAS
+    # CREAR TARJETA COMPACTA DE MÉTRICA
 
     def _crear_metrica(self, layout, nombre, valor, condicion):
-
         card = QFrame()
         card.setObjectName("metric-item")
-        card.setMinimumHeight(65)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(9, 6, 9, 6)
+        card_layout.setContentsMargins(8, 6, 8, 6)
         card_layout.setSpacing(2)
-
-        header = QHBoxLayout()
 
         titulo = QLabel(nombre)
         titulo.setObjectName("metric-title")
+        titulo.setAlignment(Qt.AlignCenter)
 
         valor_label = QLabel(valor)
         valor_label.setObjectName("metric")
-        valor_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        valor_label.setMinimumHeight(32)
-
-        header.addWidget(titulo)
-        header.addStretch()
-        header.addWidget(valor_label, 0, Qt.AlignRight)
+        valor_label.setAlignment(Qt.AlignCenter)
 
         condicion_label = QLabel(condicion)
         condicion_label.setObjectName("metric-condition")
+        condicion_label.setAlignment(Qt.AlignCenter)
 
-        card_layout.addLayout(header)
+        card_layout.addWidget(titulo)
+        card_layout.addWidget(valor_label)
         card_layout.addWidget(condicion_label)
 
-        layout.addWidget(card)
-
-        return valor_label
+        layout.addWidget(card, 1)
+        return valor_label, condicion_label
 
     # RECIBIR DATOS DEL VIDEOWORKER
 
     @Slot(np.ndarray, float, float, float)
     def actualizar_frame(self, frame, ear, mar, pitch):
-
         self._actualizar_fps()
-
         self.camera_label.setText("● CÁMARA ACTIVA")
 
-        resultado = self.analyzer.evaluar(
-            ear, mar, pitch
-        )
+        resultado = self.analyzer.evaluar(ear, mar, pitch)
 
         if ear >= 0:
-
-            self._actualizar_metricas(
-                ear, mar, pitch, resultado
-            )
-
+            self._actualizar_metricas(ear, mar, pitch, resultado)
             self._actualizar_grafica(ear)
-
-            self._actualizar_calibracion(
-                resultado["calibrando"]
-            )
-
+            self._actualizar_calibracion(resultado["calibrando"])
             self._registrar_incidente(resultado)
-
         else:
-
             self.ear_label.setText("--")
             self.mar_label.setText("--")
             self.pitch_label.setText("--")
-            self.fatigue_label.setText("NO DISPONIBLE")
-
-            self.ultimo_incidente = None
+            self.fatigue_label.setText("SIN ROSTRO")
 
         self._actualizar_semaforo(resultado)
+        self._gestionar_alertas_sonoras(resultado)
         self._mostrar_video(frame)
 
     # CALCULAR FPS
 
     def _actualizar_fps(self):
-
         ahora = time.perf_counter()
-
         if self.ultimo_frame_tiempo is not None:
-
             diferencia = ahora - self.ultimo_frame_tiempo
-
             if diferencia > 0:
-
-                fps = 1 / diferencia
-
-                self.fps_label.setText(
-                    f"FPS: {fps:.1f}"
-                )
-
+                self.fps_label.setText(f"FPS: {1 / diferencia:.1f}")
         self.ultimo_frame_tiempo = ahora
 
     # ACTUALIZAR MÉTRICAS
 
-    def _actualizar_metricas(
-        self, ear, mar, pitch, resultado
-    ):
-
+    def _actualizar_metricas(self, ear, mar, pitch, resultado):
         self.ear_label.setText(f"{ear:.3f}")
         self.mar_label.setText(f"{mar:.3f}")
         self.pitch_label.setText(f"{pitch:.1f}°")
 
-        if resultado["fatiga_acumulada"]:
+        estilo_fatiga = "fatigue-warning" if resultado["fatiga_acumulada"] else "fatigue-normal"
+        if estilo_fatiga != self._ultimo_estilo_fatiga:
+            self._ultimo_estilo_fatiga = estilo_fatiga
+            self.fatigue_label.setText(
+                "SÍ • Límite 1.0s" if resultado["fatiga_acumulada"] else "NO • Límite 1.5s"
+            )
+            self.fatigue_label.setObjectName(estilo_fatiga)
+            self.fatigue_label.style().unpolish(self.fatigue_label)
+            self.fatigue_label.style().polish(self.fatigue_label)
 
-            self.fatigue_label.setText("SÍ • Límite 1.0s")
-            self.fatigue_label.setObjectName("fatigue-warning")
+        self._sincronizar_umbral_ear()
 
-        else:
-
-            self.fatigue_label.setText("NO • Límite 1.5s")
-            self.fatigue_label.setObjectName("fatigue-normal")
-
-        self.fatigue_label.style().unpolish(self.fatigue_label)
-        self.fatigue_label.style().polish(self.fatigue_label)
-
-        self.threshold_label.setText(
-            f"Umbral EAR: {self.analyzer.ear_umbral:.3f}"
-        )
-
-        self.graph_threshold_label.setText(
-            f"UMBRAL: {self.analyzer.ear_umbral:.3f}"
-        )
+    def _sincronizar_umbral_ear(self):
+        umbral = self.analyzer.ear_umbral
+        self.ear_condition_label.setText(f"< {umbral:.3f}")
+        self.threshold_label.setText(f"Umbral EAR: {umbral:.3f}")
+        self.graph_threshold_label.setText(f"UMBRAL: {umbral:.3f}")
 
     # ACTUALIZAR GRÁFICA
 
     def _actualizar_grafica(self, ear):
-
         self.historial_ear.append(ear)
-
         if self.graph is not None:
-
-            valores = list(self.historial_ear)
-            self.curva_ear.setData(valores)
-
-            self.linea_umbral.setValue(
-                self.analyzer.ear_umbral
-            )
+            self.curva_ear.setData(list(self.historial_ear))
+            self.linea_umbral.setValue(self.analyzer.ear_umbral)
 
     # ACTUALIZAR ESTADO DEL CONDUCTOR
 
     def _actualizar_semaforo(self, resultado):
-
-        estado = resultado["estado"]
-        duracion = resultado["duracion_evento"]
-
-        estados = {
-            "NORMAL": (
-                "NORMAL",
-                "#22DFA0",
-                "Vigilia activa • Monitoreo estable"
-            ),
-            "FATIGA_TEMPRANA": (
-                "FATIGA TEMPRANA",
-                "#F59E0B",
-                "Se detectaron señales de fatiga"
-            ),
-            "MICROSUEÑO": (
-                "MICROSUEÑO",
-                "#EF4444",
-                "Cierre prolongado de los ojos detectado"
-            ),
-            "OBJETIVO_PERDIDO": (
-                "OBJETIVO PERDIDO",
-                "#829AB5",
-                "No se detecta un rostro"
+        if resultado["calibrando"]:
+            titulo, color, descripcion = (
+                "CALIBRANDO",
+                "#38BDF8",
+                "Mantenga la vista al frente con ojos abiertos (3 s)"
             )
-        }
-
-        titulo, color, descripcion = estados.get(
-            estado,
-            ("EN ESPERA", "#38BDF8", "Esperando datos biométricos")
-        )
+        else:
+            estados = {
+                "NORMAL": (
+                    "NORMAL",
+                    "#22DFA0",
+                    "Vigilia activa • Monitoreo estable"
+                ),
+                "FATIGA_TEMPRANA": (
+                    "FATIGA TEMPRANA",
+                    "#F59E0B",
+                    "Se detectaron señales de fatiga • Umbral estricto (1.0 s)"
+                ),
+                "MICROSUEÑO": (
+                    "MICROSUEÑO",
+                    "#EF4444",
+                    "¡ALERTA CRÍTICA! Cierre prolongado de ojos detectado"
+                ),
+                "OBJETIVO_PERDIDO": (
+                    "OBJETIVO PERDIDO",
+                    "#829AB5",
+                    "No se detecta un rostro en cámara"
+                )
+            }
+            titulo, color, descripcion = estados.get(
+                resultado["estado"],
+                ("EN ESPERA", "#38BDF8", "Esperando datos biométricos")
+            )
 
         self.state_label.setText(titulo)
-        self.state_label.setStyleSheet(
-            f"color: {color};"
-        )
-
+        self.state_label.setStyleSheet(f"color: {color};")
         self.state_description.setText(descripcion)
 
         self.graph_state.setText(titulo)
-        self.graph_state.setStyleSheet(
-            f"background-color: {color};"
-            "color: #07111F;"
-        )
-
+        self.graph_state.setStyleSheet(f"background-color: {color}; color: #07111F;")
         self.graph_description.setText(descripcion)
 
         self.status_label.setText(titulo)
@@ -678,155 +652,91 @@ class MainWindow(QMainWindow):
             "font-weight: bold;"
         )
 
-        self.event_label.setText(
-            f"EVENTO: {duracion:.1f}s"
-        )
+        self.event_label.setText(f"EVENTO: {resultado['duracion_evento']:.1f}s")
 
     # CALIBRACIÓN
 
     def _iniciar_calibracion(self):
-
+        self._detener_alertas()
         self.analyzer.iniciar_calibracion()
-
         self.inicio_calibracion = time.time()
-
         self.calibration_progress.setValue(0)
         self.calibration_button.setEnabled(False)
         self.calibration_button.setText("CALIBRANDO...")
 
     def _actualizar_calibracion(self, calibrando):
-
         if self.inicio_calibracion is None:
             return
 
         if calibrando:
-
             transcurrido = time.time() - self.inicio_calibracion
-
-            progreso = min(
-                int((transcurrido / 3.0) * 100),
-                99
-            )
-
-            self.calibration_progress.setValue(progreso)
-
+            self.calibration_progress.setValue(min(int((transcurrido / 3.0) * 100), 99))
         else:
-
             self.calibration_progress.setValue(100)
-
             self.calibration_button.setEnabled(True)
-            self.calibration_button.setText(
-                "Calibrar EAR Dinámico (3 s)"
-            )
-
-            self.threshold_label.setText(
-                f"Umbral EAR: {self.analyzer.ear_umbral:.3f}"
-            )
-
-            self.graph_threshold_label.setText(
-                f"UMBRAL: {self.analyzer.ear_umbral:.3f}"
-            )
-
+            self.calibration_button.setText("Calibrar EAR Dinámico (3 s)")
+            self._sincronizar_umbral_ear()
             self.inicio_calibracion = None
 
     # CAMBIO DE FUENTE
 
     def _on_fuente_cambiada(self, indice):
-
+        self._detener_alertas()
         fuente = self.source_select.currentData()
-
         self.source_changed.emit(fuente)
 
         self.status_label.setText("CAMBIANDO FUENTE")
         self.fps_label.setText("FPS: --")
-
         self.historial_ear.clear()
         self.ultimo_frame_tiempo = None
 
         if self.graph is not None:
             self.curva_ear.setData([])
 
-        self.ultimo_incidente = None
-
     # REGISTRO DE INCIDENTES
 
     def _registrar_incidente(self, resultado):
-
         tipo = resultado["tipo_incidente"]
-
         if not resultado["nuevo_incidente"] or tipo is None:
-            self.ultimo_incidente = None
             return
-
-        if tipo == self.ultimo_incidente:
-            return
-
-        self.ultimo_incidente = tipo
 
         ahora = datetime.now()
         fecha = ahora.strftime("%Y-%m-%d")
         hora = ahora.strftime("%H:%M:%S")
 
         self.db.execute(
-            """
-            INSERT INTO incidentes (tipo, fecha, hora)
-            VALUES (?, ?, ?)
-            """,
+            "INSERT INTO incidentes (tipo, fecha, hora) VALUES (?, ?, ?)",
             (tipo, fecha, hora)
         )
-
         self.db.commit()
         self._agregar_log(tipo, fecha, hora)
 
     def _agregar_log(self, tipo, fecha, hora):
-
-        texto = f"{fecha}  |  {hora}  |  {tipo}"
-        item = QListWidgetItem(texto)
-
+        item = QListWidgetItem(f"{fecha}  |  {hora}  |  {tipo}")
         self.log_list.insertItem(0, item)
 
         while self.log_list.count() > 100:
-            self.log_list.takeItem(
-                self.log_list.count() - 1
-            )
+            self.log_list.takeItem(self.log_list.count() - 1)
 
     def _cargar_logs(self):
-
         registros = self.db.execute(
-            """
-            SELECT tipo, fecha, hora
-            FROM incidentes
-            ORDER BY id DESC
-            LIMIT 100
-            """
+            "SELECT tipo, fecha, hora FROM incidentes ORDER BY id DESC LIMIT 100"
         ).fetchall()
 
-        for tipo, fecha, hora in registros:
+        # Se inserta en orden inverso para que el más reciente quede arriba (índice 0)
+        for tipo, fecha, hora in reversed(registros):
             self._agregar_log(tipo, fecha, hora)
 
     def _limpiar_logs(self):
-
         self.db.execute("DELETE FROM incidentes")
         self.db.commit()
-
         self.log_list.clear()
-        self.ultimo_incidente = None
 
     # MOSTRAR VIDEO
 
     def _mostrar_video(self, frame):
-
         h, w, ch = frame.shape
-        bytes_per_line = ch * w
-
-        q_img = QImage(
-            frame.data,
-            w,
-            h,
-            bytes_per_line,
-            QImage.Format_BGR888
-        ).copy()
-
+        q_img = QImage(frame.data, w, h, ch * w, QImage.Format_BGR888).copy()
         pixmap = QPixmap.fromImage(q_img)
         self.ultimo_pixmap = pixmap
 
@@ -834,29 +744,22 @@ class MainWindow(QMainWindow):
             pixmap.scaled(
                 self.video_label.size(),
                 Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
+                Qt.FastTransformation
             )
         )
 
-    # AJUSTAR VIDEO AL CAMBIAR TAMAÑO
-
     def resizeEvent(self, event):
-
         super().resizeEvent(event)
-
         if self.ultimo_pixmap is not None:
-
             self.video_label.setPixmap(
                 self.ultimo_pixmap.scaled(
                     self.video_label.size(),
                     Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation
+                    Qt.FastTransformation
                 )
             )
 
-    # CERRAR APLICACIÓN
-
     def closeEvent(self, event):
-
+        self._detener_alertas()
         self.db.close()
         event.accept()

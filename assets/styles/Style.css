@@ -189,15 +189,35 @@ QLabel#metric-title {
 
 QLabel#metric {
     color: #EAF4FF;
-    font-size: 21px;
+    font-size: 18px;
     font-weight: bold;
-    min-height: 32px;
-    padding: 3px 2px;
+    min-height: 24px;
+    padding: 2px 0px;
 }
 
 QLabel#metric-condition {
     color: #829AB5;
     font-size: 10px;
+}
+
+QPushButton#audio-on {
+    color: #22DFA0;
+    background-color: #0C2930;
+    border: 1px solid #145B57;
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+QPushButton#audio-off {
+    color: #EF4444;
+    background-color: #2A1215;
+    border: 1px solid #7F1D1D;
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-size: 11px;
+    font-weight: bold;
 }
 
 QLabel#fatigue-normal {
