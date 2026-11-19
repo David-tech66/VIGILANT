@@ -44,7 +44,7 @@ def obtener_ear_promedio(landmarks, frame_width, frame_height):
 
     return (ear_izq + ear_der) / 2.0
 
-
+    
 # ==============================================================================
 # BLOQUE 3: CÁLCULO DE BOCA (MAR - Mouth Aspect Ratio)
 # ==============================================================================
