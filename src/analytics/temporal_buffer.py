@@ -1,7 +1,13 @@
+# ==============================================================================
+# BLOQUE 1: IMPORTACIONES
+# ==============================================================================
 import time
 from collections import deque
 
 
+# ==============================================================================
+# BLOQUE 2: DEFINICIÓN DE LA CLASE Y ESTADOS DEL SISTEMA
+# ==============================================================================
 class DrowsinessAnalyzer:
     """
     Motor analítico temporal y Máquina de Estados para VIGILANT.
@@ -12,6 +18,9 @@ class DrowsinessAnalyzer:
     ESTADO_MICROSUEÑO = "MICROSUEÑO"
     ESTADO_PERDIDO = "OBJETIVO_PERDIDO"
 
+    # ==========================================================================
+    # BLOQUE 3: CONSTRUCTOR (UMBRALES, TIMERS Y BANDERAS)
+    # ==========================================================================
     def __init__(
         self,
         ear_umbral=0.20,
@@ -49,6 +58,9 @@ class DrowsinessAnalyzer:
         self._inicio_calibracion = None
         self._muestras_calibracion = []
 
+    # ==========================================================================
+    # BLOQUE 4: CALIBRACIÓN DINÁMICA
+    # ==========================================================================
     def iniciar_calibracion(self):
         """Activa la calibración de 3 segundos para ajustar el umbral EAR al usuario."""
         self._calibrando = True
@@ -56,13 +68,16 @@ class DrowsinessAnalyzer:
         self._muestras_calibracion.clear()
         self._reiniciar_eventos_activos()
 
+    # ==========================================================================
+    # BLOQUE 5: EVALUACIÓN PRINCIPAL (MÁQUINA DE ESTADOS)
+    # ==========================================================================
     def evaluar(self, ear: float, mar: float, pitch: float) -> dict:
         """
         Evalúa las métricas actuales y devuelve un diccionario con el estado del sistema.
         """
         ahora = time.time()
 
-        # 1. Manejo de rostro perdido (Bandera acordada: ear == -1.0)
+        # --- 5.1 Manejo de rostro perdido (Bandera acordada: ear == -1.0) ---
         if ear == -1.0:
             self._reiniciar_eventos_activos()
             return {
@@ -76,7 +91,7 @@ class DrowsinessAnalyzer:
 
         self.historial_ear.append(ear)
 
-        # 2. Proceso de calibración dinámica (3 segundos, sin disparar falsas alarmas)
+        # --- 5.2 Proceso de calibración dinámica (3 segundos) ---
         if self._calibrando:
             self._muestras_calibracion.append(ear)
             if ahora - self._inicio_calibracion >= 3.0:
@@ -95,7 +110,7 @@ class DrowsinessAnalyzer:
                 "tipo_incidente": None
             }
 
-        # 3. Evaluación de Bostezo (MAR) con filtro temporal y flanco de subida
+        # --- 5.3 Evaluación de Bostezo (MAR) ---
         bostezo_confirmado = False
         nuevo_bostezo = False
         if mar > self.mar_umbral:
@@ -111,7 +126,7 @@ class DrowsinessAnalyzer:
             self._inicio_bostezo = None
             self._bostezo_reportado = False
 
-        # 4. Evaluación de Cabeceo (Pitch) con filtro temporal y flanco de subida
+        # --- 5.4 Evaluación de Cabeceo (Pitch) ---
         cabeceo_confirmado = False
         nuevo_cabeceo = False
         if pitch < self.pitch_umbral:
@@ -132,7 +147,7 @@ class DrowsinessAnalyzer:
         # Si ya hay fatiga acumulada, el límite de microsueño se vuelve más estricto (1.0 s)
         limite_microsueno = 1.0 if fatiga_acumulada else self.tiempo_microsueno
 
-        # 5. Evaluación de Ojos Cerrados (EAR) -> Microsueño (Máxima prioridad)
+        # --- 5.5 Evaluación de Ojos Cerrados / Microsueño (Máxima prioridad) ---
         if ear < self.ear_umbral:
             if self._inicio_ojos_cerrados is None:
                 self._inicio_ojos_cerrados = ahora
@@ -153,7 +168,7 @@ class DrowsinessAnalyzer:
             self._inicio_ojos_cerrados = None
             self._microsueno_reportado = False
 
-        # 6. Estado de advertencia (Alerta Amarilla)
+        # --- 5.6 Estado de advertencia (Alerta Amarilla) ---
         if bostezo_confirmado or cabeceo_confirmado or fatiga_acumulada:
             if nuevo_bostezo:
                 tipo_incidente = "Bostezo Prolongado"
@@ -171,7 +186,7 @@ class DrowsinessAnalyzer:
                 "tipo_incidente": tipo_incidente
             }
 
-        # 7. Vigilia normal (Verde)
+        # --- 5.7 Vigilia normal (Verde) ---
         return {
             "estado": self.ESTADO_NORMAL,
             "duracion_evento": 0.0,
@@ -181,6 +196,9 @@ class DrowsinessAnalyzer:
             "tipo_incidente": None
         }
 
+    # ==========================================================================
+    # BLOQUE 6: MÉTODOS AUXILIARES INTERNOS
+    # ==========================================================================
     def _reiniciar_eventos_activos(self):
         self._inicio_ojos_cerrados = None
         self._inicio_bostezo = None
