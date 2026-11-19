@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
         self.inicio_calibracion = None
         self.ultimo_frame_tiempo = None
         self._ultimo_estilo_fatiga = None
+        self._cerrando = False
 
         # Control de alertas sonoras
         self.audio_silenciado = False
@@ -101,9 +102,9 @@ class MainWindow(QMainWindow):
             self.sonido_critico = QSoundEffect(self)
             self.sonido_critico.setSource(QUrl.fromLocalFile(str(ruta_critica)))
             loop_infinito = (
-                QSoundEffect.Loop.Infinite
+                QSoundEffect.Loop.Infinite.value
                 if hasattr(QSoundEffect, "Loop")
-                else QSoundEffect.Infinite
+                else int(QSoundEffect.Infinite)
             )
             self.sonido_critico.setLoopCount(loop_infinito)
             self.sonido_critico.setVolume(1.0)
@@ -378,7 +379,7 @@ class MainWindow(QMainWindow):
 
         right_panel.addWidget(state_card)
 
-        # TELEMETRÍA BIOMÉTRICA (3 columnas horizontales para evitar solapamientos)
+        # TELEMETRÍA BIOMÉTRICA (3 columnas horizontales)
 
         metrics_card = QFrame()
         metrics_card.setObjectName("metrics-card")
@@ -534,6 +535,9 @@ class MainWindow(QMainWindow):
 
     @Slot(np.ndarray, float, float, float)
     def actualizar_frame(self, frame, ear, mar, pitch):
+        if self._cerrando:
+            return
+
         self._actualizar_fps()
         self.camera_label.setText("● CÁMARA ACTIVA")
 
@@ -549,6 +553,7 @@ class MainWindow(QMainWindow):
             self.mar_label.setText("--")
             self.pitch_label.setText("--")
             self.fatigue_label.setText("SIN ROSTRO")
+            self._ultimo_estilo_fatiga = None
 
         self._actualizar_semaforo(resultado)
         self._gestionar_alertas_sonoras(resultado)
@@ -723,7 +728,6 @@ class MainWindow(QMainWindow):
             "SELECT tipo, fecha, hora FROM incidentes ORDER BY id DESC LIMIT 100"
         ).fetchall()
 
-        # Se inserta en orden inverso para que el más reciente quede arriba (índice 0)
         for tipo, fecha, hora in reversed(registros):
             self._agregar_log(tipo, fecha, hora)
 
@@ -760,6 +764,7 @@ class MainWindow(QMainWindow):
             )
 
     def closeEvent(self, event):
+        self._cerrando = True
         self._detener_alertas()
         self.db.close()
         event.accept()
