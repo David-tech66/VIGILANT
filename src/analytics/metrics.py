@@ -1,5 +1,7 @@
+import math
 import cv2
 import numpy as np
+
 
 def calcular_ear(ojo_puntos):
     """
@@ -69,35 +71,38 @@ def obtener_mar(landmarks, frame_width, frame_height):
 def obtener_pitch(landmarks, frame_width, frame_height):
     """
     Calcula el ángulo de inclinación vertical de la cabeza (Pitch) en grados
-    usando cv2.solvePnP. Valores negativos pronunciados indican cabeceo hacia abajo.
+    usando cv2.solvePnP.
+    Retorna ~0° mirando de frente, negativo al inclinar la cabeza hacia abajo
+    (cabeceo) y positivo al mirar hacia arriba.
+    Nota: No aplicar cv2.flip al frame antes de llamar a esta función.
     """
-    # Puntos 2D de la imagen: Nariz(1), Mentón(152), Ojo Izq(33), Ojo Der(263), Boca Izq(61), Boca Der(291)
+    # Puntos 2D: Nariz(1), Mentón(152), Ojo Der sujeto/Izq imagen(33),
+    # Ojo Izq sujeto/Der imagen(263), Boca Izq imagen(61), Boca Der imagen(291)
     idx_pose = [1, 152, 33, 263, 61, 291]
     puntos_2d = np.array([
         (landmarks.landmark[i].x * frame_width, landmarks.landmark[i].y * frame_height)
         for i in idx_pose
     ], dtype=np.float64)
 
-    # Modelo genérico 3D del rostro humano (en mm aproximados)
+    # Modelo 3D alineado al sistema de cámara de OpenCV (+X derecha, +Y abajo, +Z fondo)
     puntos_3d = np.array([
         (0.0, 0.0, 0.0),          # Nariz
-        (0.0, -330.0, -65.0),     # Mentón
-        (-225.0, 170.0, -135.0),  # Ojo izquierdo
-        (225.0, 170.0, -135.0),   # Ojo derecho
-        (-150.0, -150.0, -125.0), # Comisura izquierda
-        (150.0, -150.0, -125.0)   # Comisura derecha
+        (0.0, 330.0, 65.0),       # Mentón
+        (-225.0, -170.0, 135.0),  # Ojo (lado izquierdo de la imagen)
+        (225.0, -170.0, 135.0),   # Ojo (lado derecho de la imagen)
+        (-150.0, 150.0, 125.0),   # Comisura (lado izquierdo de la imagen)
+        (150.0, 150.0, 125.0)     # Comisura (lado derecho de la imagen)
     ], dtype=np.float64)
 
-    # Matriz de cámara aproximada
-    focal_length = frame_width
+    focal_length = float(frame_width)
     centro = (frame_width / 2.0, frame_height / 2.0)
     matriz_camara = np.array([
-        [focal_length, 0, centro[0]],
-        [0, focal_length, centro[1]],
-        [0, 0, 1]
+        [focal_length, 0.0, centro[0]],
+        [0.0, focal_length, centro[1]],
+        [0.0, 0.0, 1.0]
     ], dtype=np.float64)
 
-    dist_coeffs = np.zeros((4, 1))
+    dist_coeffs = np.zeros((4, 1), dtype=np.float64)
 
     exito, vector_rotacion, _ = cv2.solvePnP(
         puntos_3d, puntos_2d, matriz_camara, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE
@@ -107,8 +112,11 @@ def obtener_pitch(landmarks, frame_width, frame_height):
         return 0.0
 
     matriz_rotacion, _ = cv2.Rodrigues(vector_rotacion)
-    angulos, _, _, _, _, _ = cv2.RQDecomp3x3(matriz_rotacion)
 
-    # angulos[0] corresponde al Pitch (inclinación arriba/abajo)
-    pitch = float(angulos[0])
-    return pitch
+    # Elevación vertical del vector normal del rostro en el rango [-90°, +90°]
+    r02 = matriz_rotacion[0, 2]
+    r12 = matriz_rotacion[1, 2]
+    r22 = matriz_rotacion[2, 2]
+    pitch_rad = math.atan2(r12, math.hypot(r02, r22))
+
+    return float(math.degrees(pitch_rad))
