@@ -1,0 +1,300 @@
+/* FONDO GENERAL */
+
+QMainWindow {
+    background-color: #07111F;
+}
+
+QWidget {
+    color: #EAF4FF;
+    font-family: "Segoe UI";
+}
+
+/* ENCABEZADO */
+
+QLabel#logo {
+    color: #38BDF8;
+    font-size: 30px;
+    font-weight: bold;
+}
+
+QLabel#subtitle {
+    color: #829AB5;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel#status-normal {
+    color: #22DFA0;
+    background-color: #0D1B2D;
+    border: 1px solid #22DFA0;
+    border-radius: 7px;
+    padding: 7px 12px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+QLabel#fps-label {
+    color: #38BDF8;
+    background-color: #102A43;
+    border: 1px solid #1A4770;
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+/* SEPARADORES */
+
+QFrame#separator {
+    background-color: #168CE5;
+    border: none;
+}
+
+QFrame#inner-separator {
+    background-color: #24415D;
+    border: none;
+}
+
+/* TÍTULOS */
+
+QLabel#section {
+    color: #DCEBFA;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+QLabel#muted {
+    color: #829AB5;
+    font-size: 10px;
+}
+
+/* SELECTOR DE FUENTE */
+
+QComboBox#source-select {
+    background-color: #0D1B2D;
+    color: #EAF4FF;
+    border: 1px solid #1A4770;
+    border-radius: 7px;
+    padding: 7px 10px;
+    min-width: 170px;
+}
+
+QComboBox#source-select:hover {
+    border: 1px solid #38BDF8;
+}
+
+QComboBox#source-select QAbstractItemView {
+    background-color: #0D1B2D;
+    color: #EAF4FF;
+    selection-background-color: #17436D;
+    border: 1px solid #1A4770;
+}
+
+/* TARJETAS */
+
+QFrame#video-card,
+QFrame#graph-card,
+QFrame#state-card,
+QFrame#metrics-card,
+QFrame#calibration-card,
+QFrame#log-card {
+    background-color: #0D1B2D;
+    border: 1px solid #173B5E;
+    border-radius: 10px;
+}
+
+/* VISOR DE VIDEO */
+
+QLabel#camera-info {
+    color: #22DFA0;
+    background-color: #0C2930;
+    border: 1px solid #145B57;
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel#event-info {
+    color: #38BDF8;
+    background-color: #102A43;
+    border: 1px solid #1A4770;
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel#video {
+    background-color: #030A13;
+    border: 1px solid #1A4770;
+    border-radius: 8px;
+    color: #7188A3;
+    font-size: 13px;
+}
+
+/* OSCILOSCOPIO EAR */
+
+QLabel#threshold-info {
+    color: #EF7777;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QWidget#ear-graph {
+    background-color: #030A13;
+}
+
+QLabel#graph-state {
+    background-color: #22DFA0;
+    color: #07111F;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 19px;
+    font-weight: bold;
+}
+
+QLabel#graph-description {
+    color: #A9C0D8;
+    font-size: 11px;
+    padding: 3px;
+}
+
+/* ESTADO DEL CONDUCTOR */
+
+QLabel#state-title {
+    color: #38BDF8;
+    font-size: 19px;
+    font-weight: bold;
+}
+
+QLabel#state-description {
+    color: #829AB5;
+    font-size: 10px;
+}
+
+/* MÉTRICAS BIOMÉTRICAS */
+
+QFrame#metric-item {
+    background-color: #091727;
+    border: 1px solid #183B5A;
+    border-radius: 7px;
+}
+
+QLabel#metric-title {
+    color: #38BDF8;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+QLabel#metric {
+    color: #EAF4FF;
+    font-size: 21px;
+    font-weight: bold;
+    min-height: 32px;
+    padding: 3px 2px;
+}
+
+QLabel#metric-condition {
+    color: #829AB5;
+    font-size: 10px;
+}
+
+QLabel#fatigue-normal {
+    color: #22DFA0;
+    background-color: #0C2930;
+    border: 1px solid #145B57;
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel#fatigue-warning {
+    color: #F59E0B;
+    background-color: #332719;
+    border: 1px solid #80551D;
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+/* CALIBRACIÓN */
+
+QPushButton#calibration-button {
+    background-color: #126BA5;
+    color: white;
+    border: none;
+    border-radius: 7px;
+    padding: 9px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+QPushButton#calibration-button:hover {
+    background-color: #168CE5;
+}
+
+QPushButton#calibration-button:disabled {
+    background-color: #29445E;
+    color: #829AB5;
+}
+
+QProgressBar#calibration-progress {
+    background-color: #030A13;
+    color: #EAF4FF;
+    border: 1px solid #1A4770;
+    border-radius: 5px;
+    text-align: center;
+    height: 14px;
+    font-size: 9px;
+}
+
+QProgressBar#calibration-progress::chunk {
+    background-color: #22DFA0;
+    border-radius: 4px;
+}
+
+/* BITÁCORA */
+
+QListWidget#log-list {
+    background-color: #030A13;
+    color: #9CB2CA;
+    border: 1px solid #173B5E;
+    border-radius: 6px;
+    padding: 4px;
+    font-size: 10px;
+}
+
+QListWidget#log-list::item {
+    padding: 4px;
+    border-bottom: 1px solid #142A40;
+}
+
+QListWidget#log-list::item:selected {
+    background-color: #17436D;
+    color: white;
+}
+
+QPushButton#clear-button {
+    background-color: #26394E;
+    color: #DCEBFA;
+    border: 1px solid #36536F;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QPushButton#clear-button:hover {
+    background-color: #3B526B;
+}
+
+/* PIE DE PÁGINA */
+
+QLabel#footer {
+    color: #607D9C;
+    font-size: 9px;
+    padding-top: 2px;
+}
