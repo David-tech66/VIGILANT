@@ -1,8 +1,14 @@
+# ==============================================================================
+# BLOQUE 1: IMPORTACIONES
+# ==============================================================================
 import math
 import cv2
 import numpy as np
 
 
+# ==============================================================================
+# BLOQUE 2: CÁLCULO DE OJOS (EAR - Eye Aspect Ratio)
+# ==============================================================================
 def calcular_ear(ojo_puntos):
     """
     Calcula el Eye Aspect Ratio (EAR) usando distancias euclidianas de 6 puntos.
@@ -39,6 +45,9 @@ def obtener_ear_promedio(landmarks, frame_width, frame_height):
     return (ear_izq + ear_der) / 2.0
 
 
+# ==============================================================================
+# BLOQUE 3: CÁLCULO DE BOCA (MAR - Mouth Aspect Ratio)
+# ==============================================================================
 def calcular_mar(boca_puntos):
     """
     Calcula el Mouth Aspect Ratio (MAR) usando 6 puntos de los labios.
@@ -68,6 +77,9 @@ def obtener_mar(landmarks, frame_width, frame_height):
     return calcular_mar(boca)
 
 
+# ==============================================================================
+# BLOQUE 4: INCLINACIÓN DE CABEZA (PITCH)
+# ==============================================================================
 def obtener_pitch(landmarks, frame_width, frame_height):
     """
     Calcula el ángulo de inclinación vertical de la cabeza (Pitch) en grados
@@ -76,24 +88,23 @@ def obtener_pitch(landmarks, frame_width, frame_height):
     (cabeceo) y positivo al mirar hacia arriba.
     Nota: No aplicar cv2.flip al frame antes de llamar a esta función.
     """
-    # Puntos 2D: Nariz(1), Mentón(152), Ojo Der sujeto/Izq imagen(33),
-    # Ojo Izq sujeto/Der imagen(263), Boca Izq imagen(61), Boca Der imagen(291)
+    # --- Puntos 2D y Modelo 3D ---
     idx_pose = [1, 152, 33, 263, 61, 291]
     puntos_2d = np.array([
         (landmarks.landmark[i].x * frame_width, landmarks.landmark[i].y * frame_height)
         for i in idx_pose
     ], dtype=np.float64)
 
-    # Modelo 3D alineado al sistema de cámara de OpenCV (+X derecha, +Y abajo, +Z fondo)
     puntos_3d = np.array([
         (0.0, 0.0, 0.0),          # Nariz
         (0.0, 330.0, 65.0),       # Mentón
-        (-225.0, -170.0, 135.0),  # Ojo (lado izquierdo de la imagen)
-        (225.0, -170.0, 135.0),   # Ojo (lado derecho de la imagen)
-        (-150.0, 150.0, 125.0),   # Comisura (lado izquierdo de la imagen)
-        (150.0, 150.0, 125.0)     # Comisura (lado derecho de la imagen)
+        (-225.0, -170.0, 135.0),  # Ojo izquierdo imagen
+        (225.0, -170.0, 135.0),   # Ojo derecho imagen
+        (-150.0, 150.0, 125.0),   # Comisura izquierda
+        (150.0, 150.0, 125.0)     # Comisura derecha
     ], dtype=np.float64)
 
+    # --- Matriz de cámara y solvePnP ---
     focal_length = float(frame_width)
     centro = (frame_width / 2.0, frame_height / 2.0)
     matriz_camara = np.array([
@@ -111,9 +122,9 @@ def obtener_pitch(landmarks, frame_width, frame_height):
     if not exito:
         return 0.0
 
+    # --- Extracción del ángulo Pitch ---
     matriz_rotacion, _ = cv2.Rodrigues(vector_rotacion)
 
-    # Elevación vertical del vector normal del rostro en el rango [-90°, +90°]
     r02 = matriz_rotacion[0, 2]
     r12 = matriz_rotacion[1, 2]
     r22 = matriz_rotacion[2, 2]
