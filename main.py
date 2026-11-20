@@ -5,6 +5,7 @@ from src.vision.video_worker import VideoWorker
 
 
 def main():
+
     # 1. Iniciar el motor gráfico de PySide6
     app = QApplication(sys.argv)
 
@@ -27,7 +28,6 @@ def main():
 
     # 7. Mantener la aplicación viva
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()

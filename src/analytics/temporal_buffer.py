@@ -1,7 +1,6 @@
 import time
 from collections import deque
 
-
 class DrowsinessAnalyzer:
     """
     Motor analítico temporal y Máquina de Estados para VIGILANT.
@@ -14,13 +13,13 @@ class DrowsinessAnalyzer:
 
     def __init__(
         self,
-        ear_umbral=0.20,
-        mar_umbral=0.60,
-        pitch_umbral=-15.0,
-        tiempo_microsueno=1.5,
-        tiempo_bostezo=1.0,
-        tiempo_cabeceo=0.8,
-        ventana_fatiga=60.0
+        ear_umbral = 0.20,
+        mar_umbral = 0.60,
+        pitch_umbral = -15.0,
+        tiempo_microsueno = 1.5,
+        tiempo_bostezo = 1.0,
+        tiempo_cabeceo = 0.8,
+        ventana_fatiga = 60.0
     ):
         self.ear_umbral = ear_umbral
         self.mar_umbral = mar_umbral
@@ -82,6 +81,7 @@ class DrowsinessAnalyzer:
             if ahora - self._inicio_calibracion >= 3.0:
                 if self._muestras_calibracion:
                     ear_base = sum(self._muestras_calibracion) / len(self._muestras_calibracion)
+                    
                     # Acota el umbral calibrado a un rango fisiológico seguro
                     self.ear_umbral = max(0.15, min(round(ear_base * 0.70, 3), 0.25))
                 self._calibrando = False

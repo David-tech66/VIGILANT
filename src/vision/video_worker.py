@@ -65,10 +65,10 @@ class VideoWorker(QThread):
 
         try:
             with mp_face_mesh.FaceMesh(
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
+                max_num_faces = 1,
+                refine_landmarks = True,
+                min_detection_confidence = 0.5,
+                min_tracking_confidence = 0.5
             ) as face_mesh:
 
                 while self._is_running:
@@ -88,6 +88,7 @@ class VideoWorker(QThread):
                     success, image = cap.read()
 
                     if not success:
+
                         # Si es archivo de video, reinicia en bucle sin matar el hilo
                         if isinstance(fuente_actual, str):
                             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -142,11 +143,11 @@ class VideoWorker(QThread):
 
                             # Dibujar la malla facial
                             mp_drawing.draw_landmarks(
-                                image=image,
-                                landmark_list=face_landmarks,
-                                connections=mp_face_mesh.FACEMESH_TESSELATION,
-                                landmark_drawing_spec=None,
-                                connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
+                                image = image,
+                                landmark_list = face_landmarks,
+                                connections = mp_face_mesh.FACEMESH_TESSELATION,
+                                landmark_drawing_spec = None,
+                                connection_drawing_spec = mp_drawing_styles.get_default_face_mesh_tesselation_style()
                             )
 
                     # Enviar los datos a la interfaz

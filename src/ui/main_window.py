@@ -3,13 +3,19 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-
 import numpy as np
-
 from PySide6.QtWidgets import (
-    QMainWindow, QLabel, QVBoxLayout, QHBoxLayout,
-    QWidget, QFrame, QPushButton, QComboBox,
-    QListWidget, QListWidgetItem, QProgressBar
+    QMainWindow, 
+    QLabel, 
+    QVBoxLayout, 
+    QHBoxLayout,
+    QWidget, 
+    QFrame, 
+    QPushButton, 
+    QComboBox,
+    QListWidget, 
+    QListWidgetItem, 
+    QProgressBar
 )
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import Qt, Slot, Signal, QUrl
@@ -38,7 +44,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("VIGILANT v1.0 | Sistema de Monitoreo")
+        self.setWindowTitle("VIGILANT v2.0 | Sistema de Monitoreo de Somnolencia")
         self.setMinimumSize(1080, 680)
         self.resize(1360, 820)
 
@@ -63,7 +69,6 @@ class MainWindow(QMainWindow):
         self._construir_ui()
 
     # BASE DE DATOS
-
     def _inicializar_base_datos(self):
         ruta_db = self.raiz_proyecto / "src" / "database" / "vigilant.db"
         ruta_db.parent.mkdir(parents=True, exist_ok=True)
@@ -80,7 +85,6 @@ class MainWindow(QMainWindow):
         self.db.commit()
 
     # SISTEMA DE AUDIO (QSoundEffect)
-
     def _inicializar_audio(self):
         if not AUDIO_DISPONIBLE:
             print("[VIGILANT] QtMultimedia no disponible; alertas sonoras desactivadas.")
@@ -165,7 +169,6 @@ class MainWindow(QMainWindow):
                 self.setStyleSheet(archivo.read())
 
     # CONSTRUCCIÓN DE INTERFAZ
-
     def _construir_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -175,7 +178,6 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(8)
 
         # BARRA SUPERIOR
-
         header = QHBoxLayout()
         header.setSpacing(10)
 
@@ -185,7 +187,7 @@ class MainWindow(QMainWindow):
         logo = QLabel("VIGILANT")
         logo.setObjectName("logo")
 
-        version = QLabel("SISTEMA INTELIGENTE DE MONITOREO • v1.0")
+        version = QLabel("SISTEMA INTELIGENTE DE MONITOREO DE SOMNOLENCIA • v2.0")
         version.setObjectName("subtitle")
 
         logo_layout.addWidget(logo)
@@ -201,10 +203,7 @@ class MainWindow(QMainWindow):
         self.source_select.setObjectName("source-select")
         self.source_select.addItem("Cámara USB", 1)
         self.source_select.addItem("Cámara integrada", 0)
-        self.source_select.addItem(
-            "Video Benchmark",
-            str(self.raiz_proyecto / "assets" / "benchmark.mp4")
-        )
+        self.source_select.addItem("Video Benchmark", str(self.raiz_proyecto / "assets" / "benchmark.mp4"))
         self.source_select.currentIndexChanged.connect(self._on_fuente_cambiada)
 
         header.addWidget(source_title)
@@ -234,17 +233,14 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(separator)
 
         # CONTENIDO PRINCIPAL
-
         body = QHBoxLayout()
         body.setSpacing(12)
 
         # COLUMNA IZQUIERDA
-
         left_panel = QVBoxLayout()
         left_panel.setSpacing(10)
 
         # VISOR DE VIDEO
-
         video_card = QFrame()
         video_card.setObjectName("video-card")
 
@@ -281,7 +277,6 @@ class MainWindow(QMainWindow):
         left_panel.addWidget(video_card, 3)
 
         # OSCILOSCOPIO EAR
-
         graph_card = QFrame()
         graph_card.setObjectName("graph-card")
 
@@ -315,11 +310,11 @@ class MainWindow(QMainWindow):
             self.graph.getAxis("left").setTextPen("#9CB2CA")
             self.graph.getAxis("bottom").setTextPen("#9CB2CA")
 
-            self.curva_ear = self.graph.plot(pen=pg.mkPen("#38BDF8", width=2))
+            self.curva_ear = self.graph.plot(pen = pg.mkPen("#38BDF8", width = 2))
             self.linea_umbral = pg.InfiniteLine(
-                pos=self.analyzer.ear_umbral,
-                angle=0,
-                pen=pg.mkPen("#EF4444", width=2, style=Qt.DotLine)
+                pos = self.analyzer.ear_umbral,
+                angle = 0,
+                pen = pg.mkPen("#EF4444", width = 2, style = Qt.DotLine)
             )
             self.graph.addItem(self.linea_umbral)
             graph_layout.addWidget(self.graph, 1)
@@ -348,12 +343,10 @@ class MainWindow(QMainWindow):
         body.addLayout(left_panel, 3)
 
         # COLUMNA DERECHA
-
         right_panel = QVBoxLayout()
         right_panel.setSpacing(10)
 
         # SEMÁFORO: ESTADO DEL CONDUCTOR
-
         state_card = QFrame()
         state_card.setObjectName("state-card")
 
@@ -380,7 +373,6 @@ class MainWindow(QMainWindow):
         right_panel.addWidget(state_card)
 
         # TELEMETRÍA BIOMÉTRICA (3 columnas horizontales)
-
         metrics_card = QFrame()
         metrics_card.setObjectName("metrics-card")
 
@@ -427,7 +419,6 @@ class MainWindow(QMainWindow):
         right_panel.addWidget(metrics_card)
 
         # CALIBRACIÓN DINÁMICA
-
         calibration_card = QFrame()
         calibration_card.setObjectName("calibration-card")
 
@@ -460,7 +451,6 @@ class MainWindow(QMainWindow):
         right_panel.addWidget(calibration_card)
 
         # BITÁCORA DE INCIDENTES
-
         log_card = QFrame()
         log_card.setObjectName("log-card")
 
@@ -491,7 +481,6 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(body, 1)
 
         # PIE DE PÁGINA
-
         footer = QLabel(
             "VIGILANT v1.0  |  MEDIAPIPE FACE MESH  |  "
             "ANÁLISIS BIOMÉTRICO EN TIEMPO REAL  |  SQLITE"
@@ -503,7 +492,6 @@ class MainWindow(QMainWindow):
         self._cargar_logs()
 
     # CREAR TARJETA COMPACTA DE MÉTRICA
-
     def _crear_metrica(self, layout, nombre, valor, condicion):
         card = QFrame()
         card.setObjectName("metric-item")
@@ -532,7 +520,6 @@ class MainWindow(QMainWindow):
         return valor_label, condicion_label
 
     # RECIBIR DATOS DEL VIDEOWORKER
-
     @Slot(np.ndarray, float, float, float)
     def actualizar_frame(self, frame, ear, mar, pitch):
         if self._cerrando:
@@ -560,7 +547,6 @@ class MainWindow(QMainWindow):
         self._mostrar_video(frame)
 
     # CALCULAR FPS
-
     def _actualizar_fps(self):
         ahora = time.perf_counter()
         if self.ultimo_frame_tiempo is not None:
@@ -570,7 +556,6 @@ class MainWindow(QMainWindow):
         self.ultimo_frame_tiempo = ahora
 
     # ACTUALIZAR MÉTRICAS
-
     def _actualizar_metricas(self, ear, mar, pitch, resultado):
         self.ear_label.setText(f"{ear:.3f}")
         self.mar_label.setText(f"{mar:.3f}")
@@ -595,7 +580,6 @@ class MainWindow(QMainWindow):
         self.graph_threshold_label.setText(f"UMBRAL: {umbral:.3f}")
 
     # ACTUALIZAR GRÁFICA
-
     def _actualizar_grafica(self, ear):
         self.historial_ear.append(ear)
         if self.graph is not None:
@@ -603,7 +587,6 @@ class MainWindow(QMainWindow):
             self.linea_umbral.setValue(self.analyzer.ear_umbral)
 
     # ACTUALIZAR ESTADO DEL CONDUCTOR
-
     def _actualizar_semaforo(self, resultado):
         if resultado["calibrando"]:
             titulo, color, descripcion = (
@@ -660,7 +643,6 @@ class MainWindow(QMainWindow):
         self.event_label.setText(f"EVENTO: {resultado['duracion_evento']:.1f}s")
 
     # CALIBRACIÓN
-
     def _iniciar_calibracion(self):
         self._detener_alertas()
         self.analyzer.iniciar_calibracion()
@@ -684,7 +666,6 @@ class MainWindow(QMainWindow):
             self.inicio_calibracion = None
 
     # CAMBIO DE FUENTE
-
     def _on_fuente_cambiada(self, indice):
         self._detener_alertas()
         fuente = self.source_select.currentData()
@@ -699,7 +680,6 @@ class MainWindow(QMainWindow):
             self.curva_ear.setData([])
 
     # REGISTRO DE INCIDENTES
-
     def _registrar_incidente(self, resultado):
         tipo = resultado["tipo_incidente"]
         if not resultado["nuevo_incidente"] or tipo is None:
@@ -737,10 +717,16 @@ class MainWindow(QMainWindow):
         self.log_list.clear()
 
     # MOSTRAR VIDEO
-
     def _mostrar_video(self, frame):
         h, w, ch = frame.shape
-        q_img = QImage(frame.data, w, h, ch * w, QImage.Format_BGR888).copy()
+        q_img = QImage(
+            frame.data, 
+            w, 
+            h, 
+            ch * w, 
+            QImage.Format_BGR888
+        ).copy()
+        
         pixmap = QPixmap.fromImage(q_img)
         self.ultimo_pixmap = pixmap
 

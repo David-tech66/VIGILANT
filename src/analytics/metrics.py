@@ -5,7 +5,6 @@ import math
 import cv2
 import numpy as np
 
-
 # ==============================================================================
 # BLOQUE 2: CÁLCULO DE OJOS (EAR - Eye Aspect Ratio)
 # ==============================================================================
@@ -44,7 +43,6 @@ def obtener_ear_promedio(landmarks, frame_width, frame_height):
 
     return (ear_izq + ear_der) / 2.0
 
-
 # ==============================================================================
 # BLOQUE 3: CÁLCULO DE BOCA (MAR - Mouth Aspect Ratio)
 # ==============================================================================
@@ -75,7 +73,6 @@ def obtener_mar(landmarks, frame_width, frame_height):
     ]
 
     return calcular_mar(boca)
-
 
 # ==============================================================================
 # BLOQUE 4: INCLINACIÓN DE CABEZA (PITCH)
