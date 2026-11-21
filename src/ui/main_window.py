@@ -44,7 +44,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("VIGILANT v2.0 | Sistema de Monitoreo de Somnolencia")
+        self.setWindowTitle("VIGILANT v1.0 | Sistema de Monitoreo de Somnolencia")
         self.setMinimumSize(1080, 680)
         self.resize(1360, 820)
 
@@ -187,7 +187,7 @@ class MainWindow(QMainWindow):
         logo = QLabel("VIGILANT")
         logo.setObjectName("logo")
 
-        version = QLabel("SISTEMA INTELIGENTE DE MONITOREO DE SOMNOLENCIA • v2.0")
+        version = QLabel("SISTEMA DE MONITOREO DE SOMNOLENCIA • v1.0")
         version.setObjectName("subtitle")
 
         logo_layout.addWidget(logo)
