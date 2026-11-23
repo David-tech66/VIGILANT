@@ -1,5 +1,8 @@
 # ==============================================================================
 # BLOQUE 1: IMPORTACIONES
+# Qué es: Librerías matemáticas y de visión por computadora necesarias.
+# Para qué sirve: Usar trigonometría (math), matrices/vectores (numpy) y
+#                 cálculo de perspectiva 3D (cv2).
 # ==============================================================================
 import math
 import cv2
@@ -8,11 +11,11 @@ import numpy as np
 
 # ==============================================================================
 # BLOQUE 2: CÁLCULO DE OJOS (EAR - Eye Aspect Ratio)
+# Qué es: Funciones que miden qué tan abiertos o cerrados están los ojos.
+# Para qué sirve: Convertir 6 puntos clave de cada ojo en un solo número
+#                 promedio (EAR) para detectar parpadeos y microsueños.
 # ==============================================================================
 def calcular_ear(ojo_puntos):
-    """
-    Calcula el Eye Aspect Ratio (EAR) usando distancias euclidianas de 6 puntos.
-    """
     v1 = np.linalg.norm(np.array(ojo_puntos[1]) - np.array(ojo_puntos[5]))
     v2 = np.linalg.norm(np.array(ojo_puntos[2]) - np.array(ojo_puntos[4]))
     h = np.linalg.norm(np.array(ojo_puntos[0]) - np.array(ojo_puntos[3]))
@@ -24,9 +27,6 @@ def calcular_ear(ojo_puntos):
 
 
 def obtener_ear_promedio(landmarks, frame_width, frame_height):
-    """
-    Extrae los puntos clave de ambos ojos y devuelve el EAR promedio.
-    """
     idx_ojo_izq = [33, 160, 158, 133, 153, 144]
     idx_ojo_der = [362, 385, 387, 263, 373, 380]
 
@@ -47,11 +47,11 @@ def obtener_ear_promedio(landmarks, frame_width, frame_height):
 
 # ==============================================================================
 # BLOQUE 3: CÁLCULO DE BOCA (MAR - Mouth Aspect Ratio)
+# Qué es: Funciones que miden la relación entre alto y ancho de la boca.
+# Para qué sirve: Detectar si el conductor tiene la boca muy abierta para
+#                 identificar bostezos como señal de fatiga temprana.
 # ==============================================================================
 def calcular_mar(boca_puntos):
-    """
-    Calcula el Mouth Aspect Ratio (MAR) usando 6 puntos de los labios.
-    """
     v1 = np.linalg.norm(np.array(boca_puntos[1]) - np.array(boca_puntos[5]))
     v2 = np.linalg.norm(np.array(boca_puntos[2]) - np.array(boca_puntos[4]))
     h = np.linalg.norm(np.array(boca_puntos[0]) - np.array(boca_puntos[3]))
@@ -63,10 +63,6 @@ def calcular_mar(boca_puntos):
 
 
 def obtener_mar(landmarks, frame_width, frame_height):
-    """
-    Extrae los puntos clave de los labios y devuelve el MAR.
-    Índices: [Izq, SupIzq, SupDer, Der, InfDer, InfIzq]
-    """
     idx_boca = [78, 82, 312, 308, 317, 87]
 
     boca = [
@@ -79,13 +75,11 @@ def obtener_mar(landmarks, frame_width, frame_height):
 
 # ==============================================================================
 # BLOQUE 4: POSE DE CABEZA (PITCH Y YAW)
+# Qué es: Estimador de orientación 3D de la cabeza usando cv2.solvePnP.
+# Para qué sirve: Comparar 6 puntos del rostro en 2D contra un modelo 3D genérico
+#                 para obtener Pitch (cabeceo arriba/abajo) y Yaw (giro lateral).
 # ==============================================================================
 def obtener_pose_cabeza(landmarks, frame_width, frame_height):
-    """
-    Calcula los ángulos de cabeza (Pitch y Yaw) en grados usando cv2.solvePnP.
-    - Pitch: ~0° de frente, negativo al inclinar hacia abajo (cabeceo), positivo hacia arriba.
-    - Yaw:   ~0° de frente, negativo/positivo al girar la cabeza hacia los costados.
-    """
     idx_pose = [1, 152, 33, 263, 61, 291]
     puntos_2d = np.array([
         (landmarks.landmark[i].x * frame_width, landmarks.landmark[i].y * frame_height)
@@ -130,7 +124,12 @@ def obtener_pose_cabeza(landmarks, frame_width, frame_height):
     return float(math.degrees(pitch_rad)), float(math.degrees(yaw_rad))
 
 
+# ==============================================================================
+# BLOQUE 5: FUNCIÓN DE COMPATIBILIDAD (SOLO PITCH)
+# Qué es: Un envoltorio (wrapper) que llama a obtener_pose_cabeza y descarta el Yaw.
+# Para qué sirve: Evitar que se rompan partes viejas del proyecto que solo pedían
+#                 el ángulo de cabeceo (Pitch).
+# ==============================================================================
 def obtener_pitch(landmarks, frame_width, frame_height):
-    """Compatibilidad hacia atrás: devuelve únicamente el ángulo Pitch."""
     pitch, _ = obtener_pose_cabeza(landmarks, frame_width, frame_height)
     return pitch

@@ -3,16 +3,23 @@ from collections import deque
 
 
 class DrowsinessAnalyzer:
-    """
-    Motor analítico temporal y Máquina de Estados para VIGILANT.
-    Incluye suavizado EMA, bloqueo por giro lateral (Yaw), histéresis,
-    calibración robusta de EAR + Pitch y cooldown anti-spam.
-    """
+
+    # =========================================================================
+    # BLOQUE 1: CONSTANTES DE LA MÁQUINA DE ESTADOS
+    # Qué es: Las 4 etiquetas fijas que definen el estado del conductor.
+    # Para qué sirve: Estandarizar la salida para que la interfaz sepa qué alerta mostrar.
+    # =========================================================================
     ESTADO_NORMAL = "NORMAL"
     ESTADO_FATIGA = "FATIGA_TEMPRANA"
     ESTADO_MICROSUEÑO = "MICROSUEÑO"
     ESTADO_PERDIDO = "OBJETIVO_PERDIDO"
 
+    # =========================================================================
+    # BLOQUE 2: CONFIGURACIÓN INICIAL (__init__)
+    # Qué es: El constructor donde se definen umbrales, tiempos, filtros y variables internas.
+    # Para qué sirve: Inicializar los límites de detección (EAR, MAR, Pitch, Yaw),
+    #                 el suavizado EMA, la histéresis, los cooldowns y el historial.
+    # =========================================================================
     def __init__(
         self,
         ear_umbral=0.20,
@@ -35,53 +42,49 @@ class DrowsinessAnalyzer:
         self.ventana_fatiga = ventana_fatiga
         self.cooldown_fatiga = cooldown_fatiga
 
-        # Factores de suavizado exponencial (EMA): menor = más suave
         self.alpha_ear = 0.45
         self.alpha_mar = 0.40
         self.alpha_pose = 0.30
 
-        # Márgenes de histéresis para evitar parpadeos en el borde del umbral
         self.histeresis_ear = 0.025
         self.histeresis_mar = 0.07
         self.histeresis_pitch = 3.0
 
-        # Valores suavizados actuales
         self._ear_suave = None
         self._mar_suave = None
         self._pitch_suave = None
         self._yaw_suave = None
 
-        # Estados internos con histéresis
         self._ojos_cerrados_activo = False
         self._boca_abierta_activa = False
         self._cabeceo_activo = False
 
-        # Timers internos
         self._inicio_ojos_cerrados = None
         self._inicio_bostezo = None
         self._inicio_cabeceo = None
         self._ultima_fatiga = None
 
-        # Cooldowns para evitar avisos repetitivos de fatiga temprana
         self._ultimo_aviso_bostezo = 0.0
         self._ultimo_aviso_cabeceo = 0.0
 
-        # Banderas de flanco de subida
         self._microsueno_reportado = False
         self._bostezo_reportado = False
         self._cabeceo_reportado = False
 
-        # Historial para gráfica de telemetría
         self.historial_ear = deque(maxlen=100)
 
-        # Calibración dinámica (3 segundos: EAR + Pitch de reposo)
         self._calibrando = False
         self._inicio_calibracion = None
         self._muestras_ear = []
         self._muestras_pitch = []
 
+    # =========================================================================
+    # BLOQUE 3: UTILIDADES DE CALIBRACIÓN Y SUAVIZADO (EMA)
+    # Qué es: Métodos de apoyo para activar la calibración y filtrar ruido de la cámara.
+    # Para qué sirve: Iniciar la toma de muestras de 3s y estabilizar las métricas
+    #                 frente a vibraciones o cambios de luz.
+    # =========================================================================
     def iniciar_calibracion(self):
-        """Activa la calibración de 3 s para ajustar EAR y Pitch base al usuario."""
         self._calibrando = True
         self._inicio_calibracion = time.time()
         self._muestras_ear.clear()
@@ -100,13 +103,17 @@ class DrowsinessAnalyzer:
         self._pitch_suave = None
         self._yaw_suave = None
 
+    # =========================================================================
+    # BLOQUE 4: MOTOR PRINCIPAL DE EVALUACIÓN (evaluar)
+    # Qué es: El método que corre en cada frame para decidir el estado del conductor.
+    # Para qué sirve: Procesar las métricas en orden de prioridad y devolver el diagnóstico.
+    # =========================================================================
     def evaluar(self, ear: float, mar: float, pitch: float, yaw: float = 0.0) -> dict:
-        """
-        Evalúa las métricas actuales y devuelve el estado del sistema.
-        """
         ahora = time.time()
 
-        # 1. Rostro perdido (Bandera: ear == -1.0)
+        # --- BLOQUE 4.1: ROSTRO PERDIDO ---
+        # Qué es: Validación de la bandera ear == -1.0.
+        # Para qué sirve: Limpiar timers y filtros cuando la cámara deja de ver la cara.
         if ear == -1.0:
             self._reiniciar_eventos_activos()
             self._reiniciar_suavizado()
@@ -120,7 +127,9 @@ class DrowsinessAnalyzer:
                 "mirada_desviada": False
             }
 
-        # 2. Suavizado exponencial (reduce ruido de landmarks por luz/lentes)
+        # --- BLOQUE 4.2: SUAVIZADO Y TELEMETRÍA ---
+        # Qué es: Aplicación del filtro EMA y registro en la cola historial_ear.
+        # Para qué sirve: Estabilizar los valores antes de evaluarlos y alimentar la gráfica.
         ear_s = self._suavizar("_ear_suave", ear, self.alpha_ear)
         mar_s = self._suavizar("_mar_suave", mar, self.alpha_mar)
         pitch_s = self._suavizar("_pitch_suave", pitch, self.alpha_pose)
@@ -128,16 +137,16 @@ class DrowsinessAnalyzer:
 
         self.historial_ear.append(ear_s)
 
-        # 3. Calibración dinámica (3 segundos)
+        # --- BLOQUE 4.3: CALIBRACIÓN DINÁMICA (3 SEGUNDOS) ---
+        # Qué es: Recolección de muestras mirando al frente y cálculo de percentiles.
+        # Para qué sirve: Ajustar automáticamente los umbrales de EAR y Pitch a cada usuario.
         if self._calibrando:
-            # Solo guarda muestras cuando el usuario mira razonablemente al frente
             if abs(yaw_s) <= 20.0:
                 self._muestras_ear.append(ear_s)
                 self._muestras_pitch.append(pitch_s)
 
             if ahora - self._inicio_calibracion >= 3.0:
                 if self._muestras_ear:
-                    # Percentil 65 ignora parpadeos breves ocurridos durante la calibración
                     ordenadas_ear = sorted(self._muestras_ear)
                     ear_base = ordenadas_ear[int(len(ordenadas_ear) * 0.65)]
                     self.ear_umbral = max(0.15, min(round(ear_base * 0.70, 3), 0.25))
@@ -145,7 +154,6 @@ class DrowsinessAnalyzer:
                 if self._muestras_pitch:
                     ordenadas_pitch = sorted(self._muestras_pitch)
                     pitch_base = ordenadas_pitch[len(ordenadas_pitch) // 2]
-                    # Exige caer 16° por debajo de la postura natural del usuario
                     self.pitch_umbral = max(-35.0, min(round(pitch_base - 16.0, 1), -10.0))
 
                 self._calibrando = False
@@ -162,8 +170,9 @@ class DrowsinessAnalyzer:
 
         fatiga_acumulada = self._tiene_fatiga_reciente(ahora)
 
-        # 4. Bloqueo por giro lateral (Yaw Gating)
-        # Si gira la cabeza (ej. espejos) sin estar ya en microsueño, pausa timers
+        # --- BLOQUE 4.4: BLOQUEO POR GIRO LATERAL (YAW GATING) ---
+        # Qué es: Filtro que detecta si la cabeza giró demasiado hacia los lados.
+        # Para qué sirve: Pausar timers al mirar espejos y evitar falsos microsueños.
         if abs(yaw_s) > self.yaw_umbral and not self._microsueno_reportado:
             self._reiniciar_eventos_activos()
             return {
@@ -176,7 +185,9 @@ class DrowsinessAnalyzer:
                 "mirada_desviada": True
             }
 
-        # 5. Evaluación de Bostezo (MAR) con histéresis y cooldown
+        # --- BLOQUE 4.5: EVALUACIÓN DE BOSTEZO (MAR) ---
+        # Qué es: Detector de boca abierta prolongada con histéresis y cooldown.
+        # Para qué sirve: Confirmar bostezos reales, marcar fatiga y evitar alertas repetidas.
         if not self._boca_abierta_activa:
             if mar_s > self.mar_umbral:
                 self._boca_abierta_activa = True
@@ -201,7 +212,9 @@ class DrowsinessAnalyzer:
             self._inicio_bostezo = None
             self._bostezo_reportado = False
 
-        # 6. Evaluación de Cabeceo (Pitch) con histéresis y cooldown
+        # --- BLOQUE 4.6: EVALUACIÓN DE CABECEO (PITCH) ---
+        # Qué es: Detector de inclinación prolongada de cabeza hacia abajo con histéresis y cooldown.
+        # Para qué sirve: Identificar pérdida de postura por sueño y registrar fatiga reciente.
         if not self._cabeceo_activo:
             if pitch_s < self.pitch_umbral:
                 self._cabeceo_activo = True
@@ -226,10 +239,12 @@ class DrowsinessAnalyzer:
             self._inicio_cabeceo = None
             self._cabeceo_reportado = False
 
+        # --- BLOQUE 4.7: EVALUACIÓN DE MICROSUEÑO (EAR - ALERTA ROJA) ---
+        # Qué es: Detector de ojos cerrados con prioridad máxima y límite adaptable.
+        # Para qué sirve: Disparar alerta crítica más rápido (1.0s) si ya hay fatiga acumulada.
         fatiga_acumulada = self._tiene_fatiga_reciente(ahora)
         limite_microsueno = 1.0 if fatiga_acumulada else self.tiempo_microsueno
 
-        # 7. Evaluación de Ojos Cerrados (EAR) con histéresis -> Microsueño
         if not self._ojos_cerrados_activo:
             if ear_s < self.ear_umbral:
                 self._ojos_cerrados_activo = True
@@ -258,7 +273,9 @@ class DrowsinessAnalyzer:
             self._inicio_ojos_cerrados = None
             self._microsueno_reportado = False
 
-        # 8. Estado de advertencia (Alerta Amarilla)
+        # --- BLOQUE 4.8: ESTADO DE ADVERTENCIA (ALERTA AMARILLA) ---
+        # Qué es: Salida de fatiga temprana por bostezo, cabeceo o fatiga reciente.
+        # Para qué sirve: Advertir al conductor antes de que llegue a un microsueño.
         if bostezo_confirmado or cabeceo_confirmado or fatiga_acumulada:
             if nuevo_bostezo:
                 tipo_incidente = "Bostezo Prolongado"
@@ -277,7 +294,9 @@ class DrowsinessAnalyzer:
                 "mirada_desviada": False
             }
 
-        # 9. Vigilia normal (Verde)
+        # --- BLOQUE 4.9: VIGILIA NORMAL (VERDE) ---
+        # Qué es: Retorno por defecto cuando no hay anomalías.
+        # Para qué sirve: Indicar que el conductor está atento y sin signos de fatiga.
         return {
             "estado": self.ESTADO_NORMAL,
             "duracion_evento": 0.0,
@@ -288,6 +307,11 @@ class DrowsinessAnalyzer:
             "mirada_desviada": False
         }
 
+    # =========================================================================
+    # BLOQUE 5: MÉTODOS AUXILIARES INTERNOS
+    # Qué es: Funciones privadas de limpieza y consulta de memoria temporal.
+    # Para qué sirve: Resetear eventos en curso y comprobar si la fatiga sigue vigente.
+    # =========================================================================
     def _reiniciar_eventos_activos(self):
         self._ojos_cerrados_activo = False
         self._boca_abierta_activa = False
