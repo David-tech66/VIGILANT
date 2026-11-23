@@ -5,6 +5,7 @@ import math
 import cv2
 import numpy as np
 
+
 # ==============================================================================
 # BLOQUE 2: CÁLCULO DE OJOS (EAR - Eye Aspect Ratio)
 # ==============================================================================
@@ -43,6 +44,7 @@ def obtener_ear_promedio(landmarks, frame_width, frame_height):
 
     return (ear_izq + ear_der) / 2.0
 
+
 # ==============================================================================
 # BLOQUE 3: CÁLCULO DE BOCA (MAR - Mouth Aspect Ratio)
 # ==============================================================================
@@ -74,18 +76,16 @@ def obtener_mar(landmarks, frame_width, frame_height):
 
     return calcular_mar(boca)
 
+
 # ==============================================================================
-# BLOQUE 4: INCLINACIÓN DE CABEZA (PITCH)
+# BLOQUE 4: POSE DE CABEZA (PITCH Y YAW)
 # ==============================================================================
-def obtener_pitch(landmarks, frame_width, frame_height):
+def obtener_pose_cabeza(landmarks, frame_width, frame_height):
     """
-    Calcula el ángulo de inclinación vertical de la cabeza (Pitch) en grados
-    usando cv2.solvePnP.
-    Retorna ~0° mirando de frente, negativo al inclinar la cabeza hacia abajo
-    (cabeceo) y positivo al mirar hacia arriba.
-    Nota: No aplicar cv2.flip al frame antes de llamar a esta función.
+    Calcula los ángulos de cabeza (Pitch y Yaw) en grados usando cv2.solvePnP.
+    - Pitch: ~0° de frente, negativo al inclinar hacia abajo (cabeceo), positivo hacia arriba.
+    - Yaw:   ~0° de frente, negativo/positivo al girar la cabeza hacia los costados.
     """
-    # --- Puntos 2D y Modelo 3D ---
     idx_pose = [1, 152, 33, 263, 61, 291]
     puntos_2d = np.array([
         (landmarks.landmark[i].x * frame_width, landmarks.landmark[i].y * frame_height)
@@ -101,7 +101,6 @@ def obtener_pitch(landmarks, frame_width, frame_height):
         (150.0, 150.0, 125.0)     # Comisura derecha
     ], dtype=np.float64)
 
-    # --- Matriz de cámara y solvePnP ---
     focal_length = float(frame_width)
     centro = (frame_width / 2.0, frame_height / 2.0)
     matriz_camara = np.array([
@@ -117,14 +116,21 @@ def obtener_pitch(landmarks, frame_width, frame_height):
     )
 
     if not exito:
-        return 0.0
+        return 0.0, 0.0
 
-    # --- Extracción del ángulo Pitch ---
     matriz_rotacion, _ = cv2.Rodrigues(vector_rotacion)
 
     r02 = matriz_rotacion[0, 2]
     r12 = matriz_rotacion[1, 2]
     r22 = matriz_rotacion[2, 2]
-    pitch_rad = math.atan2(r12, math.hypot(r02, r22))
 
-    return float(math.degrees(pitch_rad))
+    pitch_rad = math.atan2(r12, math.hypot(r02, r22))
+    yaw_rad = math.atan2(-r02, r22)
+
+    return float(math.degrees(pitch_rad)), float(math.degrees(yaw_rad))
+
+
+def obtener_pitch(landmarks, frame_width, frame_height):
+    """Compatibilidad hacia atrás: devuelve únicamente el ángulo Pitch."""
+    pitch, _ = obtener_pose_cabeza(landmarks, frame_width, frame_height)
+    return pitch

@@ -1,42 +1,60 @@
-# ==============================================================================
-# BLOQUE 1: IMPORTACIONES
-# ==============================================================================
 import time
 from collections import deque
 
-# ==============================================================================
-# BLOQUE 2: DEFINICIÓN DE LA CLASE Y ESTADOS DEL SISTEMA
-# ==============================================================================
+
 class DrowsinessAnalyzer:
     """
     Motor analítico temporal y Máquina de Estados para VIGILANT.
-    Diferencia parpadeos normales de microsueños y gestiona la fatiga acumulada.
+    Incluye suavizado EMA, bloqueo por giro lateral (Yaw), histéresis,
+    calibración robusta de EAR + Pitch y cooldown anti-spam.
     """
     ESTADO_NORMAL = "NORMAL"
     ESTADO_FATIGA = "FATIGA_TEMPRANA"
     ESTADO_MICROSUEÑO = "MICROSUEÑO"
     ESTADO_PERDIDO = "OBJETIVO_PERDIDO"
 
-    # ==========================================================================
-    # BLOQUE 3: CONSTRUCTOR (UMBRALES, TIMERS Y BANDERAS)
-    # ==========================================================================
     def __init__(
         self,
-        ear_umbral = 0.20,
-        mar_umbral = 0.60,
-        pitch_umbral = -15.0,
-        tiempo_microsueno = 1.5,
-        tiempo_bostezo = 1.0,
-        tiempo_cabeceo = 0.8,
-        ventana_fatiga = 60.0
+        ear_umbral=0.20,
+        mar_umbral=0.65,
+        pitch_umbral=-18.0,
+        yaw_umbral=28.0,
+        tiempo_microsueno=1.5,
+        tiempo_bostezo=1.4,
+        tiempo_cabeceo=1.2,
+        ventana_fatiga=60.0,
+        cooldown_fatiga=15.0
     ):
         self.ear_umbral = ear_umbral
         self.mar_umbral = mar_umbral
         self.pitch_umbral = pitch_umbral
+        self.yaw_umbral = yaw_umbral
         self.tiempo_microsueno = tiempo_microsueno
         self.tiempo_bostezo = tiempo_bostezo
         self.tiempo_cabeceo = tiempo_cabeceo
         self.ventana_fatiga = ventana_fatiga
+        self.cooldown_fatiga = cooldown_fatiga
+
+        # Factores de suavizado exponencial (EMA): menor = más suave
+        self.alpha_ear = 0.45
+        self.alpha_mar = 0.40
+        self.alpha_pose = 0.30
+
+        # Márgenes de histéresis para evitar parpadeos en el borde del umbral
+        self.histeresis_ear = 0.025
+        self.histeresis_mar = 0.07
+        self.histeresis_pitch = 3.0
+
+        # Valores suavizados actuales
+        self._ear_suave = None
+        self._mar_suave = None
+        self._pitch_suave = None
+        self._yaw_suave = None
+
+        # Estados internos con histéresis
+        self._ojos_cerrados_activo = False
+        self._boca_abierta_activa = False
+        self._cabeceo_activo = False
 
         # Timers internos
         self._inicio_ojos_cerrados = None
@@ -44,61 +62,92 @@ class DrowsinessAnalyzer:
         self._inicio_cabeceo = None
         self._ultima_fatiga = None
 
-        # Banderas de flanco de subida (evitan duplicar registros en SQLite por frame)
+        # Cooldowns para evitar avisos repetitivos de fatiga temprana
+        self._ultimo_aviso_bostezo = 0.0
+        self._ultimo_aviso_cabeceo = 0.0
+
+        # Banderas de flanco de subida
         self._microsueno_reportado = False
         self._bostezo_reportado = False
         self._cabeceo_reportado = False
 
-        # Historial para gráfica de telemetría (últimos 100 valores)
+        # Historial para gráfica de telemetría
         self.historial_ear = deque(maxlen=100)
 
-        # Calibración dinámica (3 segundos)
+        # Calibración dinámica (3 segundos: EAR + Pitch de reposo)
         self._calibrando = False
         self._inicio_calibracion = None
-        self._muestras_calibracion = []
+        self._muestras_ear = []
+        self._muestras_pitch = []
 
-    # ==========================================================================
-    # BLOQUE 4: CALIBRACIÓN DINÁMICA
-    # ==========================================================================
     def iniciar_calibracion(self):
-        """Activa la calibración de 3 segundos para ajustar el umbral EAR al usuario."""
+        """Activa la calibración de 3 s para ajustar EAR y Pitch base al usuario."""
         self._calibrando = True
         self._inicio_calibracion = time.time()
-        self._muestras_calibracion.clear()
+        self._muestras_ear.clear()
+        self._muestras_pitch.clear()
         self._reiniciar_eventos_activos()
 
-    # ==========================================================================
-    # BLOQUE 5: EVALUACIÓN PRINCIPAL (MÁQUINA DE ESTADOS)
-    # ==========================================================================
-    def evaluar(self, ear: float, mar: float, pitch: float) -> dict:
+    def _suavizar(self, atributo: str, valor: float, alpha: float) -> float:
+        previo = getattr(self, atributo)
+        nuevo = valor if previo is None else (alpha * valor + (1.0 - alpha) * previo)
+        setattr(self, atributo, nuevo)
+        return nuevo
+
+    def _reiniciar_suavizado(self):
+        self._ear_suave = None
+        self._mar_suave = None
+        self._pitch_suave = None
+        self._yaw_suave = None
+
+    def evaluar(self, ear: float, mar: float, pitch: float, yaw: float = 0.0) -> dict:
         """
-        Evalúa las métricas actuales y devuelve un diccionario con el estado del sistema.
+        Evalúa las métricas actuales y devuelve el estado del sistema.
         """
         ahora = time.time()
 
-        # --- 5.1 Manejo de rostro perdido (Bandera acordada: ear == -1.0) ---
+        # 1. Rostro perdido (Bandera: ear == -1.0)
         if ear == -1.0:
             self._reiniciar_eventos_activos()
+            self._reiniciar_suavizado()
             return {
                 "estado": self.ESTADO_PERDIDO,
                 "duracion_evento": 0.0,
                 "fatiga_acumulada": self._tiene_fatiga_reciente(ahora),
                 "calibrando": self._calibrando,
                 "nuevo_incidente": False,
-                "tipo_incidente": None
+                "tipo_incidente": None,
+                "mirada_desviada": False
             }
 
-        self.historial_ear.append(ear)
+        # 2. Suavizado exponencial (reduce ruido de landmarks por luz/lentes)
+        ear_s = self._suavizar("_ear_suave", ear, self.alpha_ear)
+        mar_s = self._suavizar("_mar_suave", mar, self.alpha_mar)
+        pitch_s = self._suavizar("_pitch_suave", pitch, self.alpha_pose)
+        yaw_s = self._suavizar("_yaw_suave", yaw, self.alpha_pose)
 
-        # --- 5.2 Proceso de calibración dinámica (3 segundos) ---
+        self.historial_ear.append(ear_s)
+
+        # 3. Calibración dinámica (3 segundos)
         if self._calibrando:
-            self._muestras_calibracion.append(ear)
+            # Solo guarda muestras cuando el usuario mira razonablemente al frente
+            if abs(yaw_s) <= 20.0:
+                self._muestras_ear.append(ear_s)
+                self._muestras_pitch.append(pitch_s)
+
             if ahora - self._inicio_calibracion >= 3.0:
-                if self._muestras_calibracion:
-                    ear_base = sum(self._muestras_calibracion) / len(self._muestras_calibracion)
-                    
-                    # Acota el umbral calibrado a un rango fisiológico seguro
+                if self._muestras_ear:
+                    # Percentil 65 ignora parpadeos breves ocurridos durante la calibración
+                    ordenadas_ear = sorted(self._muestras_ear)
+                    ear_base = ordenadas_ear[int(len(ordenadas_ear) * 0.65)]
                     self.ear_umbral = max(0.15, min(round(ear_base * 0.70, 3), 0.25))
+
+                if self._muestras_pitch:
+                    ordenadas_pitch = sorted(self._muestras_pitch)
+                    pitch_base = ordenadas_pitch[len(ordenadas_pitch) // 2]
+                    # Exige caer 16° por debajo de la postura natural del usuario
+                    self.pitch_umbral = max(-35.0, min(round(pitch_base - 16.0, 1), -10.0))
+
                 self._calibrando = False
 
             return {
@@ -107,48 +156,88 @@ class DrowsinessAnalyzer:
                 "fatiga_acumulada": False,
                 "calibrando": self._calibrando,
                 "nuevo_incidente": False,
-                "tipo_incidente": None
+                "tipo_incidente": None,
+                "mirada_desviada": False
             }
 
-        # --- 5.3 Evaluación de Bostezo (MAR) ---
+        fatiga_acumulada = self._tiene_fatiga_reciente(ahora)
+
+        # 4. Bloqueo por giro lateral (Yaw Gating)
+        # Si gira la cabeza (ej. espejos) sin estar ya en microsueño, pausa timers
+        if abs(yaw_s) > self.yaw_umbral and not self._microsueno_reportado:
+            self._reiniciar_eventos_activos()
+            return {
+                "estado": self.ESTADO_FATIGA if fatiga_acumulada else self.ESTADO_NORMAL,
+                "duracion_evento": 0.0,
+                "fatiga_acumulada": fatiga_acumulada,
+                "calibrando": False,
+                "nuevo_incidente": False,
+                "tipo_incidente": None,
+                "mirada_desviada": True
+            }
+
+        # 5. Evaluación de Bostezo (MAR) con histéresis y cooldown
+        if not self._boca_abierta_activa:
+            if mar_s > self.mar_umbral:
+                self._boca_abierta_activa = True
+        else:
+            if mar_s < (self.mar_umbral - self.histeresis_mar):
+                self._boca_abierta_activa = False
+
         bostezo_confirmado = False
         nuevo_bostezo = False
-        if mar > self.mar_umbral:
+        if self._boca_abierta_activa:
             if self._inicio_bostezo is None:
                 self._inicio_bostezo = ahora
             elif (ahora - self._inicio_bostezo) >= self.tiempo_bostezo:
                 bostezo_confirmado = True
                 self._ultima_fatiga = ahora
-                if not self._bostezo_reportado:
+                en_cooldown = (ahora - self._ultimo_aviso_bostezo) < self.cooldown_fatiga
+                if not self._bostezo_reportado and not en_cooldown:
                     nuevo_bostezo = True
                     self._bostezo_reportado = True
+                    self._ultimo_aviso_bostezo = ahora
         else:
             self._inicio_bostezo = None
             self._bostezo_reportado = False
 
-        # --- 5.4 Evaluación de Cabeceo (Pitch) ---
+        # 6. Evaluación de Cabeceo (Pitch) con histéresis y cooldown
+        if not self._cabeceo_activo:
+            if pitch_s < self.pitch_umbral:
+                self._cabeceo_activo = True
+        else:
+            if pitch_s > (self.pitch_umbral + self.histeresis_pitch):
+                self._cabeceo_activo = False
+
         cabeceo_confirmado = False
         nuevo_cabeceo = False
-        if pitch < self.pitch_umbral:
+        if self._cabeceo_activo:
             if self._inicio_cabeceo is None:
                 self._inicio_cabeceo = ahora
             elif (ahora - self._inicio_cabeceo) >= self.tiempo_cabeceo:
                 cabeceo_confirmado = True
                 self._ultima_fatiga = ahora
-                if not self._cabeceo_reportado:
+                en_cooldown = (ahora - self._ultimo_aviso_cabeceo) < self.cooldown_fatiga
+                if not self._cabeceo_reportado and not en_cooldown:
                     nuevo_cabeceo = True
                     self._cabeceo_reportado = True
+                    self._ultimo_aviso_cabeceo = ahora
         else:
             self._inicio_cabeceo = None
             self._cabeceo_reportado = False
 
         fatiga_acumulada = self._tiene_fatiga_reciente(ahora)
-
-        # Si ya hay fatiga acumulada, el límite de microsueño se vuelve más estricto (1.0 s)
         limite_microsueno = 1.0 if fatiga_acumulada else self.tiempo_microsueno
 
-        # --- 5.5 Evaluación de Ojos Cerrados / Microsueño (Máxima prioridad) ---
-        if ear < self.ear_umbral:
+        # 7. Evaluación de Ojos Cerrados (EAR) con histéresis -> Microsueño
+        if not self._ojos_cerrados_activo:
+            if ear_s < self.ear_umbral:
+                self._ojos_cerrados_activo = True
+        else:
+            if ear_s > (self.ear_umbral + self.histeresis_ear):
+                self._ojos_cerrados_activo = False
+
+        if self._ojos_cerrados_activo:
             if self._inicio_ojos_cerrados is None:
                 self._inicio_ojos_cerrados = ahora
             duracion_ojos = ahora - self._inicio_ojos_cerrados
@@ -162,13 +251,14 @@ class DrowsinessAnalyzer:
                     "fatiga_acumulada": fatiga_acumulada,
                     "calibrando": False,
                     "nuevo_incidente": nuevo_microsueno,
-                    "tipo_incidente": "Microsueño Crítico" if nuevo_microsueno else None
+                    "tipo_incidente": "Microsueño Crítico" if nuevo_microsueno else None,
+                    "mirada_desviada": False
                 }
         else:
             self._inicio_ojos_cerrados = None
             self._microsueno_reportado = False
 
-        # --- 5.6 Estado de advertencia (Alerta Amarilla) ---
+        # 8. Estado de advertencia (Alerta Amarilla)
         if bostezo_confirmado or cabeceo_confirmado or fatiga_acumulada:
             if nuevo_bostezo:
                 tipo_incidente = "Bostezo Prolongado"
@@ -183,23 +273,25 @@ class DrowsinessAnalyzer:
                 "fatiga_acumulada": True,
                 "calibrando": False,
                 "nuevo_incidente": tipo_incidente is not None,
-                "tipo_incidente": tipo_incidente
+                "tipo_incidente": tipo_incidente,
+                "mirada_desviada": False
             }
 
-        # --- 5.7 Vigilia normal (Verde) ---
+        # 9. Vigilia normal (Verde)
         return {
             "estado": self.ESTADO_NORMAL,
             "duracion_evento": 0.0,
             "fatiga_acumulada": False,
             "calibrando": False,
             "nuevo_incidente": False,
-            "tipo_incidente": None
+            "tipo_incidente": None,
+            "mirada_desviada": False
         }
 
-    # ==========================================================================
-    # BLOQUE 6: MÉTODOS AUXILIARES INTERNOS
-    # ==========================================================================
     def _reiniciar_eventos_activos(self):
+        self._ojos_cerrados_activo = False
+        self._boca_abierta_activa = False
+        self._cabeceo_activo = False
         self._inicio_ojos_cerrados = None
         self._inicio_bostezo = None
         self._inicio_cabeceo = None
