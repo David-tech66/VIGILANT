@@ -6,17 +6,16 @@ import threading
 
 from PySide6.QtCore import QThread, Signal
 
-from src.analytics.metrics import(
+from src.analytics.metrics import (
     obtener_ear_promedio,
     obtener_mar,
-    obtener_pitch
+    obtener_pose_cabeza
 )
-
 
 class VideoWorker(QThread):
 
     # Enviar fotograma, EAR, MAR y PITCH a la interfaz
-    frame_processed = Signal(np.ndarray, float, float, float)
+    frame_processed = Signal(np.ndarray, float, float, float, float)
 
     def __init__(self, camera_index=1):
         super().__init__()
@@ -135,9 +134,9 @@ class VideoWorker(QThread):
                             )
 
                             # Calcular PITCH
-                            pitch_actual = obtener_pitch(
-                                face_landmarks,
-                                w,
+                            pitch_actual, yaw_actual = obtener_pose_cabeza(
+                                face_landmarks, 
+                                w, 
                                 h
                             )
 
@@ -155,7 +154,8 @@ class VideoWorker(QThread):
                         image,
                         ear_actual,
                         mar_actual,
-                        pitch_actual
+                        pitch_actual,
+                        yaw_actual
                     )
 
         finally:

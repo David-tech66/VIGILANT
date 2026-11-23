@@ -393,7 +393,7 @@ class MainWindow(QMainWindow):
         self.mar_label, _ = self._crear_metrica(
             metrics_row, "MAR (BOCA)", "0.000", f"> {self.analyzer.mar_umbral:.3f}"
         )
-        self.pitch_label, _ = self._crear_metrica(
+        self.pitch_label, self.pitch_condition_label = self._crear_metrica(
             metrics_row, "PITCH", "0.0°", f"< {self.analyzer.pitch_umbral:.1f}°"
         )
 
@@ -520,15 +520,15 @@ class MainWindow(QMainWindow):
         return valor_label, condicion_label
 
     # RECIBIR DATOS DEL VIDEOWORKER
-    @Slot(np.ndarray, float, float, float)
-    def actualizar_frame(self, frame, ear, mar, pitch):
+    @Slot(np.ndarray, float, float, float, float)
+    def actualizar_frame(self, frame, ear, mar, pitch, yaw):
         if self._cerrando:
             return
 
         self._actualizar_fps()
         self.camera_label.setText("● CÁMARA ACTIVA")
 
-        resultado = self.analyzer.evaluar(ear, mar, pitch)
+        resultado = self.analyzer.evaluar(ear, mar, pitch, yaw)
 
         if ear >= 0:
             self._actualizar_metricas(ear, mar, pitch, resultado)
@@ -576,6 +576,7 @@ class MainWindow(QMainWindow):
     def _sincronizar_umbral_ear(self):
         umbral = self.analyzer.ear_umbral
         self.ear_condition_label.setText(f"< {umbral:.3f}")
+        self.pitch_condition_label.setText(f"< {self.analyzer.pitch_umbral:.1f}°")
         self.threshold_label.setText(f"Umbral EAR: {umbral:.3f}")
         self.graph_threshold_label.setText(f"UMBRAL: {umbral:.3f}")
 
