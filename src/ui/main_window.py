@@ -44,7 +44,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("VIGILANT v1.0 | Sistema de Monitoreo de Somnolencia")
+        self.setWindowTitle("VIGILANT v2.0 | Sistema de Monitoreo de Somnolencia")
         self.setMinimumSize(1080, 680)
         self.resize(1360, 820)
 
@@ -187,7 +187,7 @@ class MainWindow(QMainWindow):
         logo = QLabel("VIGILANT")
         logo.setObjectName("logo")
 
-        version = QLabel("SISTEMA DE MONITOREO DE SOMNOLENCIA • v1.0")
+        version = QLabel("SISTEMA DE MONITOREO DE SOMNOLENCIA • v2.0")
         version.setObjectName("subtitle")
 
         logo_layout.addWidget(logo)
@@ -257,7 +257,7 @@ class MainWindow(QMainWindow):
         video_layout.addWidget(points_label)
 
         camera_info = QHBoxLayout()
-        self.camera_label = QLabel("● CÁMARA ACTIVA")
+        self.camera_label = QLabel("● CONECTANDO CÁMARA...")
         self.camera_label.setObjectName("camera-info")
 
         self.event_label = QLabel("EVENTO: 0.0s")
@@ -482,7 +482,7 @@ class MainWindow(QMainWindow):
 
         # PIE DE PÁGINA
         footer = QLabel(
-            "VIGILANT v1.0  |  MEDIAPIPE FACE MESH  |  "
+            "VIGILANT v2.0  |  MEDIAPIPE FACE MESH  |  "
             "ANÁLISIS BIOMÉTRICO EN TIEMPO REAL  |  SQLITE"
         )
         footer.setObjectName("footer")
@@ -519,14 +519,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(card, 1)
         return valor_label, condicion_label
 
-    # RECIBIR DATOS DEL VIDEOWORKER
+    # RECIBIR DATOS DEL VIDEO_WORKER
     @Slot(np.ndarray, float, float, float, float)
     def actualizar_frame(self, frame, ear, mar, pitch, yaw):
         if self._cerrando:
             return
 
         self._actualizar_fps()
-        self.camera_label.setText("● CÁMARA ACTIVA")
 
         resultado = self.analyzer.evaluar(ear, mar, pitch, yaw)
 
@@ -594,6 +593,12 @@ class MainWindow(QMainWindow):
                 "CALIBRANDO",
                 "#38BDF8",
                 "Mantenga la vista al frente con ojos abiertos (3 s)"
+            )
+        elif resultado.get("mirada_desviada"):
+            titulo, color, descripcion = (
+                "MIRADA DESVIADA",
+                "#38BDF8",
+                "Giro lateral detectado • Monitoreo en pausa"
             )
         else:
             estados = {
@@ -679,6 +684,22 @@ class MainWindow(QMainWindow):
 
         if self.graph is not None:
             self.curva_ear.setData([])
+
+    @Slot(object)
+    def sincronizar_fuente_activa(self, fuente_real):
+        if fuente_real is None:
+            self.camera_label.setText("● SIN CÁMARA DISPONIBLE")
+            self.status_label.setText("SIN SEÑAL")
+            return
+
+        indice = self.source_select.findData(fuente_real)
+        if indice != -1:
+            self.source_select.blockSignals(True)
+            self.source_select.setCurrentIndex(indice)
+            self.source_select.blockSignals(False)
+
+        nombre = self.source_select.currentText().upper()
+        self.camera_label.setText(f"● {nombre} ACTIVA")
 
     # REGISTRO DE INCIDENTES
     def _registrar_incidente(self, resultado):

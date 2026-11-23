@@ -18,6 +18,7 @@ def main():
     # 4. CONECTAR EL PUENTE (Señal -> Slot)
     worker.frame_processed.connect(ventana.actualizar_frame)
     ventana.source_changed.connect(worker.set_source)
+    worker.source_active.connect(ventana.sincronizar_fuente_activa)
 
     # 5. Cierre seguro del hilo y liberación de la cámara
     app.aboutToQuit.connect(worker.stop)

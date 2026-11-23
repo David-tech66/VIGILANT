@@ -1,11 +1,9 @@
-
+import os
 import cv2
 import mediapipe as mp
 import numpy as np
 import threading
-
 from PySide6.QtCore import QThread, Signal
-
 from src.analytics.metrics import (
     obtener_ear_promedio,
     obtener_mar,
@@ -14,8 +12,11 @@ from src.analytics.metrics import (
 
 class VideoWorker(QThread):
 
-    # Enviar fotograma, EAR, MAR y PITCH a la interfaz
+    # Enviar fotograma, EAR, MAR, PITCH y YAW a la interfaz
     frame_processed = Signal(np.ndarray, float, float, float, float)
+
+    # Notificar a la UI qué fuente quedó realmente activa (1, 0, ruta str o None)
+    source_active = Signal(object)
 
     def __init__(self, camera_index=1):
         super().__init__()
@@ -28,6 +29,7 @@ class VideoWorker(QThread):
         self._source_changed = False
 
     def set_source(self, source):
+
         # Recibe el índice de cámara o la ruta del video
         with self._source_lock:
             self._pending_source = source
@@ -42,25 +44,46 @@ class VideoWorker(QThread):
 
         return False, None
 
+    def _intentar_camara(self, indice):
+        backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+        cap = cv2.VideoCapture(indice, backend)
+        if cap.isOpened():
+            ok, _ = cap.read()
+            if ok:
+                return cap
+        cap.release()
+
+        return None
+
     def _abrir_fuente(self, source):
-        cap = cv2.VideoCapture(source)
+        if isinstance(source, int):
+            cap = self._intentar_camara(source)
+            if cap is not None:
 
-        # Si falla una cámara USB, intenta con la integrada
-        if isinstance(source, int) and not cap.isOpened():
-            cap.release()
+                return cap, source
 
+            # Si falló la USB (1), hacer fallback real a la integrada (0)
             if source != 0:
-                cap = cv2.VideoCapture(0)
+                cap = self._intentar_camara(0)
+                if cap is not None:
+                    return cap, 0
 
-        return cap
+            return None, None
+
+        # Archivo de video (Video Benchmark)
+        cap = cv2.VideoCapture(source)
+        if cap.isOpened():
+            return cap, source
+        cap.release()
+        return None, None
 
     def run(self):
         mp_face_mesh = mp.solutions.face_mesh
         mp_drawing = mp.solutions.drawing_utils
         mp_drawing_styles = mp.solutions.drawing_styles
 
-        fuente_actual = self.camera_index
-        cap = self._abrir_fuente(fuente_actual)
+        cap, fuente_actual = self._abrir_fuente(self.camera_index)
+        self.source_active.emit(fuente_actual)
 
         try:
             with mp_face_mesh.FaceMesh(
@@ -76,11 +99,12 @@ class VideoWorker(QThread):
                     cambio, nueva_fuente = self._obtener_nueva_fuente()
 
                     if cambio:
-                        cap.release()
-                        fuente_actual = nueva_fuente
-                        cap = self._abrir_fuente(fuente_actual)
+                        if cap is not None:
+                            cap.release()
+                        cap, fuente_actual = self._abrir_fuente(nueva_fuente)
+                        self.source_active.emit(fuente_actual)
 
-                    if not cap.isOpened():
+                    if cap is None or not cap.isOpened():
                         self.msleep(100)
                         continue
 
@@ -98,7 +122,7 @@ class VideoWorker(QThread):
                         self.msleep(50)
                         continue
 
-                    # Efecto espejo solo cuando la lectura fue exitosa
+                    # Efecto espejo solo en cámaras en vivo
                     if isinstance(fuente_actual, int):
                         image = cv2.flip(image, 1)
 
@@ -113,6 +137,7 @@ class VideoWorker(QThread):
                     ear_actual = -1.0
                     mar_actual = -1.0
                     pitch_actual = 0.0
+                    yaw_actual = 0.0
 
                     if results.multi_face_landmarks:
                         h, w, _ = image.shape
@@ -159,7 +184,8 @@ class VideoWorker(QThread):
                     )
 
         finally:
-            cap.release()
+            if cap is not None:
+                cap.release()
 
     def stop(self):
         self._is_running = False
