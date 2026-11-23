@@ -18,13 +18,14 @@ from PySide6.QtWidgets import (
     QProgressBar
 )
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtCore import Qt, Slot, Signal, QUrl
+from PySide6.QtCore import Qt, Slot, Signal, QUrl, QTimer
 
 try:
-    from PySide6.QtMultimedia import QSoundEffect
+    from PySide6.QtMultimedia import QSoundEffect, QMediaDevices
     AUDIO_DISPONIBLE = True
 except ImportError:
     QSoundEffect = None
+    QMediaDevices = None
     AUDIO_DISPONIBLE = False
 
 from src.analytics.temporal_buffer import DrowsinessAnalyzer
@@ -67,6 +68,9 @@ class MainWindow(QMainWindow):
         self._inicializar_audio()
         self._cargar_estilos()
         self._construir_ui()
+        self.fuente_preferida = 1   # Por defecto el sistema prefiere Cámara USB
+        self.fuente_activa = None
+        self._inicializar_monitor_camaras()
 
     # BASE DE DATOS
     def _inicializar_base_datos(self):
@@ -675,6 +679,7 @@ class MainWindow(QMainWindow):
     def _on_fuente_cambiada(self, indice):
         self._detener_alertas()
         fuente = self.source_select.currentData()
+        self.fuente_preferida = fuente
         self.source_changed.emit(fuente)
 
         self.status_label.setText("CAMBIANDO FUENTE")
@@ -687,6 +692,15 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def sincronizar_fuente_activa(self, fuente_real):
+        cambio_real = fuente_real != self.fuente_activa
+        self.fuente_activa = fuente_real    
+
+        if cambio_real:
+            self.historial_ear.clear()
+            self.ultimo_frame_tiempo = None
+            if self.graph is not None:
+                self.curva_ear.setData([])
+
         if fuente_real is None:
             self.camera_label.setText("● SIN CÁMARA DISPONIBLE")
             self.status_label.setText("SIN SEÑAL")
@@ -700,6 +714,40 @@ class MainWindow(QMainWindow):
 
         nombre = self.source_select.currentText().upper()
         self.camera_label.setText(f"● {nombre} ACTIVA")
+
+    def _inicializar_monitor_camaras(self):
+        if QMediaDevices is not None:
+            self.media_devices = QMediaDevices(self)
+            self.media_devices.videoInputsChanged.connect(
+                self._on_dispositivos_video_cambiados
+        )
+
+    def _on_dispositivos_video_cambiados(self):
+        if self._cerrando or QMediaDevices is None:
+            return
+
+        num_camaras = len(QMediaDevices.videoInputs())
+
+        # Reconexión USB cuando el usuario quiere USB pero estaba en respaldo
+        if self.fuente_preferida == 1 and self.fuente_activa != 1 and num_camaras >= 2:
+            QTimer.singleShot(800, self._reintentar_camara_preferida)
+    
+        # Recuperación si antes no había ninguna cámara disponible
+        elif (
+            self.fuente_activa is None
+            and isinstance(self.fuente_preferida, int)
+            and num_camaras >= 1
+        ):
+            QTimer.singleShot(800, self._reintentar_camara_preferida)
+
+    def _reintentar_camara_preferida(self):
+        if self._cerrando:
+            return
+
+        if self.fuente_preferida == 1 and self.fuente_activa != 1:
+            self.source_changed.emit(1)
+        elif self.fuente_activa is None and isinstance(self.fuente_preferida, int):
+            self.source_changed.emit(self.fuente_preferida)
 
     # REGISTRO DE INCIDENTES
     def _registrar_incidente(self, resultado):

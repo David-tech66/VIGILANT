@@ -84,6 +84,7 @@ class VideoWorker(QThread):
 
         cap, fuente_actual = self._abrir_fuente(self.camera_index)
         self.source_active.emit(fuente_actual)
+        fallos_lectura = 0
 
         try:
             with mp_face_mesh.FaceMesh(
@@ -99,9 +100,15 @@ class VideoWorker(QThread):
                     cambio, nueva_fuente = self._obtener_nueva_fuente()
 
                     if cambio:
+
+                        # Evitar parpadeo si ya estamos usando exactamente esa fuente
+                        if nueva_fuente == fuente_actual and cap is not None and cap.isOpened():
+                            continue
+
                         if cap is not None:
                             cap.release()
                         cap, fuente_actual = self._abrir_fuente(nueva_fuente)
+                        fallos_lectura = 0
                         self.source_active.emit(fuente_actual)
 
                     if cap is None or not cap.isOpened():
@@ -117,10 +124,27 @@ class VideoWorker(QThread):
                             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                             self.msleep(30)
                             continue
+
+                        fallos_lectura += 1
+
+                        # ~0.5 s de fallos seguidos = cámara desconectada
+                        if fallos_lectura >= 10:
+                            cap.release()
+                            cap = None
+                            fallos_lectura = 0
+
+                            if fuente_actual != 0:
+                                cap, fuente_actual = self._abrir_fuente(0)
+                            else:
+                                fuente_actual = None
+
+                            self.source_active.emit(fuente_actual)
                         
                         # Si es cámara, espera brevemente a que se recupere o cambie la fuente
                         self.msleep(50)
                         continue
+
+                    fallos_lectura = 0
 
                     # Efecto espejo solo en cámaras en vivo
                     if isinstance(fuente_actual, int):
