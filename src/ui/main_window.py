@@ -53,6 +53,7 @@ from src.ui.pages.reports_page import ReportsPage
 from src.ui.pages.settings_page import SettingsPage
 from src.ui.pages.about_page import AboutPage
 
+
 class MainWindow(QMainWindow):
 
     source_changed = Signal(object)
@@ -223,6 +224,7 @@ class MainWindow(QMainWindow):
         self.pages_stack.setStyleSheet("background: transparent;")
 
         self.home_page = self._construir_pagina_inicio()
+
         self.reports_page = ReportsPage(self.db)
         self.reports_page.historial_limpiado.connect(self._on_historial_limpiado_externo)
 
@@ -236,11 +238,6 @@ class MainWindow(QMainWindow):
         self.pages_stack.addWidget(self.reports_page)
         self.pages_stack.addWidget(self.settings_page)
         self.pages_stack.addWidget(self.about_page)
-
-        self.pages_stack.addWidget(self.home_page)
-        self.pages_stack.addWidget(self.reports_placeholder)
-        self.pages_stack.addWidget(self.settings_placeholder)
-        self.pages_stack.addWidget(self.about_placeholder)
 
         workspace.addWidget(self.pages_stack, 1)
         root_layout.addLayout(workspace, 1)
@@ -612,7 +609,9 @@ class MainWindow(QMainWindow):
         fatigue_title = QLabel("Fatiga reciente (60s)")
         fatigue_title.setObjectName("metric-title")
 
-        self.fatigue_label = QLabel("NO • Límite 1.5s")
+        self.fatigue_label = QLabel(
+            f"NO • Límite {self.analyzer.duracion_microsueño_normal:.1f}s"
+        )
         self.fatigue_label.setObjectName("fatigue-normal")
         self.fatigue_label.setAlignment(Qt.AlignCenter)
 
@@ -695,7 +694,6 @@ class MainWindow(QMainWindow):
 
         return page
 
-   
     # ==========================================================
     # RECIBIR DATOS DEL VIDEOWORKER
     # ==========================================================
@@ -724,7 +722,26 @@ class MainWindow(QMainWindow):
         self._gestionar_alertas_sonoras(resultado)
         self._mostrar_video(frame)
 
-    
+    def _on_historial_limpiado_externo(self):
+        self.log_list.clear()
+
+    def _on_configuracion_actualizada(self):
+        umbral_pct = self.analyzer.prob_umbral_cierre * 100.0
+        self.card_ai.condition_label.setText(f">= {umbral_pct:.0f}% (ACTIVA)")
+        self.card_mar.condition_label.setText(f"> {self.analyzer.mar_umbral:.3f}")
+        self._sincronizar_umbrales()
+        if self._modo_grafica == "IA_CNN":
+            self.graph_threshold_label.setText(f"Umbral: {umbral_pct:.0f}%")
+            if self.linea_umbral is not None:
+                self.linea_umbral.setValue(umbral_pct)
+        self._ultimo_estilo_fatiga = None
+        self._ultimo_estado_visual = None
+
+    def _on_volumen_cambiado(self, vol_fatiga, vol_critico):
+        if self.sonido_fatiga is not None:
+            self.sonido_fatiga.setVolume(vol_fatiga)
+        if self.sonido_critico is not None:
+            self.sonido_critico.setVolume(vol_critico)
 
     def _actualizar_fps(self):
         ahora = time.perf_counter()
@@ -756,7 +773,9 @@ class MainWindow(QMainWindow):
         if estilo_fatiga != self._ultimo_estilo_fatiga:
             self._ultimo_estilo_fatiga = estilo_fatiga
             self.fatigue_label.setText(
-                "SÍ • Límite 1.0s" if resultado["fatiga_acumulada"] else "NO • Límite 1.5s"
+                f"SÍ • Límite {self.analyzer.duracion_microsueño_fatiga:.1f}s"
+                if resultado["fatiga_acumulada"]
+                else f"NO • Límite {self.analyzer.duracion_microsueño_normal:.1f}s"
             )
             self.fatigue_label.setObjectName(estilo_fatiga)
             self.fatigue_label.style().unpolish(self.fatigue_label)
@@ -847,7 +866,7 @@ class MainWindow(QMainWindow):
                 "#D97706",
                 "#1F1300",
                 "alert",
-                "Señales de fatiga detectadas • Límite estricto (1.0 s)",
+                f"Señales de fatiga detectadas • Límite estricto ({self.analyzer.duracion_microsueño_fatiga:.1f} s)",
             ),
             "MICROSUEÑO": (
                 "MICROSUEÑO",

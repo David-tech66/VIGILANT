@@ -45,9 +45,8 @@ class ReportsPage(QWidget):
         self.kpi_total = MetricCard("TOTAL EVENTOS", "0", "Histórico acumulado", "reports", "#38BDF8")
         self.kpi_micro = MetricCard("MICROSUEÑOS", "0", "Alerta crítica (Nivel 2)", "eye", "#EF4444")
         self.kpi_bostezo = MetricCard("BOSTEZOS", "0", "Fatiga temprana (MAR)", "mouth", "#F59E0B")
-        self.kpi_cabeceo = MetricCard("CABEÇEOS", "0", "Fatiga temprana (Pitch)", "pulse", "#8B5CF6")
+        self.kpi_cabeceo = MetricCard("CABECEO", "0", "Fatiga temprana (Pitch)", "pulse", "#8B5CF6")
         # Corregir etiqueta visual de título
-        self.kpi_cabeceo.findChild(QLabel, "metric-title").setText("CABEZEOS" if False else "CABECEO")
 
         for card in (self.kpi_total, self.kpi_micro, self.kpi_bostezo, self.kpi_cabeceo):
             kpi_row.addWidget(card, 1)
