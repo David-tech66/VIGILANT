@@ -2,7 +2,8 @@ import sys
 from PySide6.QtWidgets import QApplication
 from src.ui.main_window import MainWindow
 from src.vision.video_worker import VideoWorker
-
+import os
+os.environ["OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS"] = "0"
 
 def main():
 

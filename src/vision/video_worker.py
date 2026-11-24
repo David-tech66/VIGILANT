@@ -12,6 +12,8 @@ from src.analytics.metrics import (
     obtener_mar,
     obtener_pose_cabeza
 )
+import os
+os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
 
 
 class VideoWorker(QThread):
@@ -45,13 +47,14 @@ class VideoWorker(QThread):
         return False, None
 
     def _intentar_camara(self, indice):
-        backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+        backend = cv2.CAP_MSMF if os.name == "nt" else cv2.CAP_ANY
         cap = cv2.VideoCapture(indice, backend)
         if cap.isOpened():
             ok, _ = cap.read()
             if ok:
                 return cap
         cap.release()
+        
         return None
 
     def _abrir_fuente(self, source):
@@ -85,6 +88,7 @@ class VideoWorker(QThread):
 
         cap, fuente_actual = self._abrir_fuente(self.camera_index)
         self.source_active.emit(fuente_actual)
+        fallos_lectura = 0
 
         try:
             with mp_face_mesh.FaceMesh(
@@ -104,6 +108,7 @@ class VideoWorker(QThread):
                         if cap is not None:
                             cap.release()
                         cap, fuente_actual = self._abrir_fuente(nueva_fuente)
+                        fallos_lectura = 0
                         self.source_active.emit(fuente_actual)
 
                     if cap is None or not cap.isOpened():
@@ -118,8 +123,24 @@ class VideoWorker(QThread):
                             self.msleep(30)
                             continue
 
+                        fallos_lectura += 1
+                        if fallos_lectura >= 5:
+                            print(f"[VIGILANT] Cámara {fuente_actual} desconectada. Cambiando a respaldo...")
+                            cap.release()
+                            cap = None
+                            fallos_lectura = 0
+
+                            if fuente_actual != 0:
+                                cap, fuente_actual = self._abrir_fuente(0)
+                            else:
+                                fuente_actual = None
+
+                            self.source_active.emit(fuente_actual)
+
                         self.msleep(50)
                         continue
+
+                    fallos_lectura = 0
 
                     # Efecto espejo solo en cámaras en vivo
                     if isinstance(fuente_actual, int):
@@ -146,7 +167,7 @@ class VideoWorker(QThread):
                         mar_actual = obtener_mar(face_landmarks, w, h)
                         pitch_actual, yaw_actual = obtener_pose_cabeza(face_landmarks, w, h)
 
-                        # IMPORTANTE: clasificar ojos ANTES de dibujar la malla facial
+                        # Clasificar ojos ANTES de dibujar la malla facial
                         prob_cierre_actual, _, _ = eye_classifier.predecir_probabilidad_cierre(
                             image, face_landmarks
                         )

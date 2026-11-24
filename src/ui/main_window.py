@@ -19,13 +19,14 @@ from PySide6.QtWidgets import (
     QProgressBar
 )
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtCore import Qt, Slot, Signal, QUrl
+from PySide6.QtCore import Qt, Slot, Signal, QUrl, QTimer
 
 try:
-    from PySide6.QtMultimedia import QSoundEffect
+    from PySide6.QtMultimedia import QSoundEffect, QMediaDevices
     AUDIO_DISPONIBLE = True
 except ImportError:
     QSoundEffect = None
+    QMediaDevices = None
     AUDIO_DISPONIBLE = False
 
 from src.analytics.temporal_buffer import DrowsinessAnalyzer
@@ -69,6 +70,10 @@ class MainWindow(QMainWindow):
         self._inicializar_audio()
         self._cargar_estilos()
         self._construir_ui()
+        self.fuente_preferida = 1   # Preferencia inicial: Cámara USB
+        self.fuente_activa = None
+        self._reintentos_usb = 0
+        self._inicializar_monitor_camaras()
 
     # BASE DE DATOS
     def _inicializar_base_datos(self):
@@ -730,6 +735,10 @@ class MainWindow(QMainWindow):
     def _on_fuente_cambiada(self, indice):
         self._detener_alertas()
         fuente = self.source_select.currentData()
+        self.fuente_preferida = fuente
+        self._reintentos_usb = 0
+        if hasattr(self, "_timer_reconexion"):
+            self._timer_reconexion.stop()
         self.source_changed.emit(fuente)
 
         self.status_label.setText("CAMBIANDO FUENTE")
@@ -742,10 +751,28 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def sincronizar_fuente_activa(self, fuente_real):
-        self.historial_grafica.clear()
-        self.ultimo_frame_tiempo = None
-        if self.graph is not None:
-            self.curva_principal.setData([])
+        cambio_real = fuente_real != self.fuente_activa
+        self.fuente_activa = fuente_real
+
+        if cambio_real:
+            self.historial_grafica.clear()
+            self.ultimo_frame_tiempo = None
+            if self.graph is not None:
+                self.curva_principal.setData([])
+
+        if fuente_real == 1:
+            self._reintentos_usb = 0
+            self._timer_reconexion.stop()
+        elif (
+            fuente_real == 0
+            and self.fuente_preferida == 1
+            and QMediaDevices is not None
+            and len(QMediaDevices.videoInputs()) >= 2
+            and self._reintentos_usb < 3
+        ):
+            # El driver USB aún estaba inicializando: reintentar sin bucle infinito
+            self._reintentos_usb += 1
+            self._timer_reconexion.start(1000)
 
         if fuente_real is None:
             self.camera_label.setText("● SIN CÁMARA DISPONIBLE")
@@ -760,6 +787,52 @@ class MainWindow(QMainWindow):
 
         nombre = self.source_select.currentText().upper()
         self.camera_label.setText(f"● {nombre} ACTIVA")
+
+    def _inicializar_monitor_camaras(self):
+        self._timer_reconexion = QTimer(self)
+        self._timer_reconexion.setSingleShot(True)
+        self._timer_reconexion.timeout.connect(self._reintentar_camara_preferida)
+
+        if QMediaDevices is not None:
+            self.media_devices = QMediaDevices(self)
+            self.media_devices.videoInputsChanged.connect(
+                self._on_dispositivos_video_cambiados
+            )
+
+    def _on_dispositivos_video_cambiados(self):
+        if self._cerrando or QMediaDevices is None:
+            return
+
+        num_camaras = len(QMediaDevices.videoInputs())
+
+        # Desconexión física de la USB: pasar a integrada manteniendo la preferencia USB
+        if self.fuente_activa == 1 and num_camaras < 2:
+            self._timer_reconexion.stop()
+            self._reintentos_usb = 0
+            self.source_changed.emit(0)
+            return
+
+        # Reconexión USB cuando el usuario quiere USB pero está en respaldo
+        if self.fuente_preferida == 1 and self.fuente_activa != 1 and num_camaras >= 2:
+            self._reintentos_usb = 0
+            self._timer_reconexion.start(1200)
+        # Recuperación si antes no había ninguna cámara disponible
+        elif (
+            self.fuente_activa is None
+            and isinstance(self.fuente_preferida, int)
+            and num_camaras >= 1
+        ):
+            self._reintentos_usb = 0
+            self._timer_reconexion.start(1200)
+
+    def _reintentar_camara_preferida(self):
+        if self._cerrando:
+            return
+
+        if self.fuente_preferida == 1 and self.fuente_activa != 1:
+            self.source_changed.emit(1)
+        elif self.fuente_activa is None and isinstance(self.fuente_preferida, int):
+            self.source_changed.emit(self.fuente_preferida)
 
     # REGISTRO DE INCIDENTES
     def _registrar_incidente(self, resultado):
@@ -833,6 +906,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._cerrando = True
+        self._timer_reconexion.stop()
         self._detener_alertas()
         self.db.close()
         event.accept()
