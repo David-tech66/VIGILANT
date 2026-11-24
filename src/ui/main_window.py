@@ -70,6 +70,7 @@ class MainWindow(QMainWindow):
         self._inicializar_audio()
         self._cargar_estilos()
         self._construir_ui()
+
         self.fuente_preferida = 1   # Preferencia inicial: Cámara USB
         self.fuente_activa = None
         self._reintentos_usb = 0
@@ -210,7 +211,10 @@ class MainWindow(QMainWindow):
         self.source_select.setObjectName("source-select")
         self.source_select.addItem("Cámara USB", 1)
         self.source_select.addItem("Cámara integrada", 0)
-        self.source_select.addItem("Video Benchmark", str(self.raiz_proyecto / "assets" / "video" / "benchmark.mp4"))
+        self.source_select.addItem(
+            "Video Benchmark",
+            str(self.raiz_proyecto / "assets" / "video" / "benchmark.mp4")
+        )
         self.source_select.currentIndexChanged.connect(self._on_fuente_cambiada)
 
         header.addWidget(source_title)
@@ -733,8 +737,18 @@ class MainWindow(QMainWindow):
 
     # CAMBIO DE FUENTE
     def _on_fuente_cambiada(self, indice):
-        self._detener_alertas()
         fuente = self.source_select.currentData()
+
+        if isinstance(fuente, str) and not Path(fuente).exists():
+            indice_actual = self.source_select.findData(self.fuente_activa)
+            if indice_actual != -1:
+                self.source_select.blockSignals(True)
+                self.source_select.setCurrentIndex(indice_actual)
+                self.source_select.blockSignals(False)
+            self.camera_label.setText("● FALTA assets/video/benchmark.mp4")
+            return
+
+        self._detener_alertas()
         self.fuente_preferida = fuente
         self._reintentos_usb = 0
         if hasattr(self, "_timer_reconexion"):
@@ -785,8 +799,11 @@ class MainWindow(QMainWindow):
             self.source_select.setCurrentIndex(indice)
             self.source_select.blockSignals(False)
 
-        nombre = self.source_select.currentText().upper()
-        self.camera_label.setText(f"● {nombre} ACTIVA")
+        if isinstance(fuente_real, str):
+            self.camera_label.setText("● VIDEO BENCHMARK EN REPRODUCCIÓN")
+        else:
+            nombre = self.source_select.currentText().upper()
+            self.camera_label.setText(f"● {nombre} ACTIVA")
 
     def _inicializar_monitor_camaras(self):
         self._timer_reconexion = QTimer(self)

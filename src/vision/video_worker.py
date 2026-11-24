@@ -1,5 +1,8 @@
 import os
+os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
+
 import threading
+import time
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -12,9 +15,6 @@ from src.analytics.metrics import (
     obtener_mar,
     obtener_pose_cabeza
 )
-import os
-os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
-
 
 class VideoWorker(QThread):
 
@@ -78,7 +78,16 @@ class VideoWorker(QThread):
         cap.release()
         return None, None
 
+    @staticmethod
+    def _obtener_fps_video(cap, fuente):
+        if cap is not None and isinstance(fuente, str):
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if fps and 5.0 <= fps <= 120.0:
+                return float(fps)
+        return 30.0
+
     def run(self):
+
         mp_face_mesh = mp.solutions.face_mesh
         mp_drawing = mp.solutions.drawing_utils
         mp_drawing_styles = mp.solutions.drawing_styles
@@ -87,6 +96,7 @@ class VideoWorker(QThread):
         eye_classifier = EyeStateClassifier()
 
         cap, fuente_actual = self._abrir_fuente(self.camera_index)
+        fps_video = self._obtener_fps_video(cap, fuente_actual)
         self.source_active.emit(fuente_actual)
         fallos_lectura = 0
 
@@ -108,6 +118,7 @@ class VideoWorker(QThread):
                         if cap is not None:
                             cap.release()
                         cap, fuente_actual = self._abrir_fuente(nueva_fuente)
+                        fps_video = self._obtener_fps_video(cap, fuente_actual)
                         fallos_lectura = 0
                         self.source_active.emit(fuente_actual)
 
@@ -115,6 +126,7 @@ class VideoWorker(QThread):
                         self.msleep(100)
                         continue
 
+                    t_inicio_frame = time.perf_counter()
                     success, image = cap.read()
 
                     if not success:
@@ -143,7 +155,17 @@ class VideoWorker(QThread):
                     fallos_lectura = 0
 
                     # Efecto espejo solo en cámaras en vivo
-                    if isinstance(fuente_actual, int):
+                    if isinstance(fuente_actual, str):
+                        h_vid, w_vid = image.shape[:2]
+                        if w_vid > 640:
+                            escala = 640.0 / w_vid
+                            image = cv2.resize(
+                                image,
+                                (640, int(h_vid * escala)),
+                                interpolation=cv2.INTER_AREA
+                            )
+                    else:
+                        # Efecto espejo solo en cámaras en vivo
                         image = cv2.flip(image, 1)
 
                     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -188,6 +210,14 @@ class VideoWorker(QThread):
                         yaw_actual,
                         prob_cierre_actual
                     )
+
+                    # Respetar velocidad real del archivo para no alterar los temporizadores
+                    if isinstance(fuente_actual, str):
+                        espera_ms = int(
+                            ((1.0 / fps_video) - (time.perf_counter() - t_inicio_frame)) * 1000
+                        )
+                        if espera_ms > 1:
+                            self.msleep(espera_ms)
 
         finally:
             if cap is not None:
