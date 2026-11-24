@@ -49,7 +49,9 @@ from src.ui.components import (
     crear_icono,
     crear_label_icono,
 )
-
+from src.ui.pages.reports_page import ReportsPage
+from src.ui.pages.settings_page import SettingsPage
+from src.ui.pages.about_page import AboutPage
 
 class MainWindow(QMainWindow):
 
@@ -221,18 +223,19 @@ class MainWindow(QMainWindow):
         self.pages_stack.setStyleSheet("background: transparent;")
 
         self.home_page = self._construir_pagina_inicio()
-        self.reports_placeholder = self._construir_pagina_pendiente(
-            "Reportes e Historial Completo",
-            "Siguiente paso: estadísticas de somnolencia, tabla filtrable de SQLite y exportación a CSV."
-        )
-        self.settings_placeholder = self._construir_pagina_pendiente(
-            "Configuración en Vivo",
-            "Siguiente paso: ajuste dinámico de umbral CNN, tiempos de microsueño, ángulo Yaw y volumen."
-        )
-        self.about_placeholder = self._construir_pagina_pendiente(
-            "Acerca de VIGILANT v2.0",
-            "Siguiente paso: ficha técnica del modelo EyeStateCNN (ONNX), métricas de validación y créditos."
-        )
+        self.reports_page = ReportsPage(self.db)
+        self.reports_page.historial_limpiado.connect(self._on_historial_limpiado_externo)
+
+        self.settings_page = SettingsPage(self.analyzer)
+        self.settings_page.configuracion_actualizada.connect(self._on_configuracion_actualizada)
+        self.settings_page.volumen_cambiado.connect(self._on_volumen_cambiado)
+
+        self.about_page = AboutPage()
+
+        self.pages_stack.addWidget(self.home_page)
+        self.pages_stack.addWidget(self.reports_page)
+        self.pages_stack.addWidget(self.settings_page)
+        self.pages_stack.addWidget(self.about_page)
 
         self.pages_stack.addWidget(self.home_page)
         self.pages_stack.addWidget(self.reports_placeholder)
@@ -310,6 +313,10 @@ class MainWindow(QMainWindow):
         self.pages_stack.setCurrentIndex(indice)
         if 0 <= indice < len(self.nav_buttons):
             self.nav_buttons[indice].setChecked(True)
+        if indice == 1:
+            self.reports_page.recargar_datos()
+        elif indice == 2:
+            self.settings_page.sincronizar_desde_analyzer()
 
     def _construir_header(self):
         header = QHBoxLayout()
@@ -688,31 +695,7 @@ class MainWindow(QMainWindow):
 
         return page
 
-    def _construir_pagina_pendiente(self, titulo, descripcion):
-        contenedor = QWidget()
-        contenedor.setStyleSheet("background: transparent;")
-        layout = QVBoxLayout(contenedor)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        card = GlassCard(radius=14, bg_alpha=172)
-        card_layout = QVBoxLayout(card)
-        card_layout.setAlignment(Qt.AlignCenter)
-        card_layout.setSpacing(8)
-
-        lbl_t = QLabel(titulo)
-        lbl_t.setObjectName("placeholder-title")
-        lbl_t.setAlignment(Qt.AlignCenter)
-
-        lbl_d = QLabel(descripcion)
-        lbl_d.setObjectName("placeholder-desc")
-        lbl_d.setAlignment(Qt.AlignCenter)
-        lbl_d.setWordWrap(True)
-
-        card_layout.addWidget(lbl_t)
-        card_layout.addWidget(lbl_d)
-        layout.addWidget(card)
-        return contenedor
-
+   
     # ==========================================================
     # RECIBIR DATOS DEL VIDEOWORKER
     # ==========================================================
@@ -740,6 +723,8 @@ class MainWindow(QMainWindow):
         self._actualizar_semaforo(resultado)
         self._gestionar_alertas_sonoras(resultado)
         self._mostrar_video(frame)
+
+    
 
     def _actualizar_fps(self):
         ahora = time.perf_counter()
