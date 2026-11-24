@@ -167,7 +167,7 @@ class MainWindow(QMainWindow):
         self.audio_button.style().polish(self.audio_button)
 
     def _cargar_estilos(self):
-        ruta_style = self.raiz_proyecto / "assets" / "styles" / "Style.css"
+        ruta_style = self.raiz_proyecto / "assets" / "styles" / "style.qss"
         if ruta_style.exists():
             with open(ruta_style, "r", encoding="utf-8") as archivo:
                 self.setStyleSheet(archivo.read())
