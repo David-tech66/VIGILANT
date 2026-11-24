@@ -16,6 +16,7 @@ from src.analytics.metrics import (
     obtener_pose_cabeza
 )
 
+
 class VideoWorker(QThread):
 
     # Fotograma, EAR, MAR, PITCH, YAW y probabilidad CNN de ojos cerrados [0..1] (-1 si no aplica)
@@ -43,7 +44,6 @@ class VideoWorker(QThread):
             if self._source_changed:
                 source = self._pending_source
                 self._source_changed = False
-
                 return True, source
 
         return False, None
@@ -62,21 +62,18 @@ class VideoWorker(QThread):
                 print(f"[VIGILANT] Cámara {indice} abierta en {w}x{h}")
                 return cap
         cap.release()
-
         return None
 
     def _abrir_fuente(self, source):
         if isinstance(source, int):
             cap = self._intentar_camara(source)
             if cap is not None:
-
                 return cap, source
 
             # Fallback real a la cámara integrada (0) si falló la USB (1)
             if source != 0:
                 cap = self._intentar_camara(0)
                 if cap is not None:
-
                     return cap, 0
 
             return None, None
@@ -93,13 +90,10 @@ class VideoWorker(QThread):
         if cap is not None and isinstance(fuente, str):
             fps = cap.get(cv2.CAP_PROP_FPS)
             if fps and 5.0 <= fps <= 120.0:
-
                 return float(fps)
-
         return 30.0
 
     def run(self):
-
         mp_face_mesh = mp.solutions.face_mesh
         mp_drawing = mp.solutions.drawing_utils
         mp_drawing_styles = mp.solutions.drawing_styles
@@ -115,10 +109,10 @@ class VideoWorker(QThread):
 
         try:
             with mp_face_mesh.FaceMesh(
-                max_num_faces = 1,
-                refine_landmarks = True,
-                min_detection_confidence = 0.5,
-                min_tracking_confidence = 0.5
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5
             ) as face_mesh:
 
                 while self._is_running:
@@ -132,9 +126,7 @@ class VideoWorker(QThread):
                             cap.release()
                         cap, fuente_actual = self._abrir_fuente(nueva_fuente)
                         fps_video = self._obtener_fps_video(cap, fuente_actual)
-                        
                         fallos_lectura = 0
-                        
                         self.source_active.emit(fuente_actual)
 
                     if cap is None or not cap.isOpened():
@@ -151,12 +143,10 @@ class VideoWorker(QThread):
                             continue
 
                         fallos_lectura += 1
-                        
                         if fallos_lectura >= 5:
                             print(f"[VIGILANT] Cámara {fuente_actual} desconectada. Cambiando a respaldo...")
                             cap.release()
                             cap = None
-                        
                             fallos_lectura = 0
 
                             if fuente_actual != 0:
@@ -171,22 +161,19 @@ class VideoWorker(QThread):
 
                     fallos_lectura = 0
 
-                    # Efecto espejo solo en cámaras en vivo
-                    if isinstance(fuente_actual, str):
-                        
-                        # Normalizar a 640 px de ancho en cámaras y videos antes de MediaPipe
-                        h_img, w_img = image.shape[:2]
-                        if w_img > 640:
-                            escala = 640.0 / w_img
-                            image = cv2.resize(
-                                image,
-                                (640, int(h_img * escala)),
-                                interpolation = cv2.INTER_AREA
-                            )
+                    # Normalizar a 640 px de ancho en cámaras y videos antes de MediaPipe
+                    h_img, w_img = image.shape[:2]
+                    if w_img > 640:
+                        escala = 640.0 / w_img
+                        image = cv2.resize(
+                            image,
+                            (640, int(h_img * escala)),
+                            interpolation=cv2.INTER_AREA
+                        )
 
-                        # Efecto espejo solo en cámaras en vivo
-                        if not isinstance(fuente_actual, str):
-                            image = cv2.flip(image, 1)
+                    # Efecto espejo solo en cámaras en vivo
+                    if isinstance(fuente_actual, int):
+                        image = cv2.flip(image, 1)
 
                     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                     image_rgb.flags.writeable = False
@@ -205,36 +192,21 @@ class VideoWorker(QThread):
                         h, w, _ = image.shape
                         face_landmarks = results.multi_face_landmarks[0]
 
-                        ear_actual = obtener_ear_promedio(
-                            face_landmarks, 
-                            w, 
-                            h
-                        )
-                        
-                        mar_actual = obtener_mar(
-                            face_landmarks, 
-                            w, 
-                            h
-                        )
-                        
-                        pitch_actual, yaw_actual = obtener_pose_cabeza(
-                            face_landmarks, 
-                            w, 
-                            h
-                        )
+                        ear_actual = obtener_ear_promedio(face_landmarks, w, h)
+                        mar_actual = obtener_mar(face_landmarks, w, h)
+                        pitch_actual, yaw_actual = obtener_pose_cabeza(face_landmarks, w, h)
 
                         # Clasificar ojos ANTES de dibujar la malla facial
                         prob_cierre_actual, _, _ = eye_classifier.predecir_probabilidad_cierre(
-                            image, 
-                            face_landmarks
+                            image, face_landmarks
                         )
 
                         mp_drawing.draw_landmarks(
-                            image = image,
-                            landmark_list = face_landmarks,
-                            connections = mp_face_mesh.FACEMESH_TESSELATION,
-                            landmark_drawing_spec = None,
-                            connection_drawing_spec = mp_drawing_styles.get_default_face_mesh_tesselation_style()
+                            image=image,
+                            landmark_list=face_landmarks,
+                            connections=mp_face_mesh.FACEMESH_TESSELATION,
+                            landmark_drawing_spec=None,
+                            connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
                         )
 
                     self.frame_processed.emit(
