@@ -5,27 +5,27 @@ from datetime import datetime
 from pathlib import Path
 import numpy as np
 from PySide6.QtWidgets import (
-    QMainWindow, 
-    QLabel, 
-    QVBoxLayout, 
+    QMainWindow,
+    QLabel,
+    QVBoxLayout,
     QHBoxLayout,
-    QWidget, 
-    QFrame, 
-    QPushButton, 
+    QGridLayout,
+    QWidget,
+    QFrame,
+    QPushButton,
     QComboBox,
-    QListWidget, 
-    QListWidgetItem, 
+    QListWidget,
+    QListWidgetItem,
     QProgressBar
 )
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtCore import Qt, Slot, Signal, QUrl, QTimer
+from PySide6.QtCore import Qt, Slot, Signal, QUrl
 
 try:
-    from PySide6.QtMultimedia import QSoundEffect, QMediaDevices
+    from PySide6.QtMultimedia import QSoundEffect
     AUDIO_DISPONIBLE = True
 except ImportError:
     QSoundEffect = None
-    QMediaDevices = None
     AUDIO_DISPONIBLE = False
 
 from src.analytics.temporal_buffer import DrowsinessAnalyzer
@@ -45,14 +45,15 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("VIGILANT v2.0 | Sistema de Monitoreo de Somnolencia")
+        self.setWindowTitle("VIGILANT v2.0 | Sistema de Monitoreo de Somnolencia con IA")
         self.setMinimumSize(1080, 680)
         self.resize(1360, 820)
 
         self.raiz_proyecto = Path(__file__).resolve().parents[2]
         self.analyzer = DrowsinessAnalyzer()
 
-        self.historial_ear = deque(maxlen=120)
+        self.historial_grafica = deque(maxlen=120)
+        self._modo_grafica = None
         self.ultimo_pixmap = None
         self.inicio_calibracion = None
         self.ultimo_frame_tiempo = None
@@ -68,9 +69,6 @@ class MainWindow(QMainWindow):
         self._inicializar_audio()
         self._cargar_estilos()
         self._construir_ui()
-        self.fuente_preferida = 1   # Por defecto el sistema prefiere Cámara USB
-        self.fuente_activa = None
-        self._inicializar_monitor_camaras()
 
     # BASE DE DATOS
     def _inicializar_base_datos(self):
@@ -126,7 +124,7 @@ class MainWindow(QMainWindow):
             self.sonido_fatiga.stop()
 
     def _gestionar_alertas_sonoras(self, resultado):
-        if self.audio_silenciado or resultado["calibrando"]:
+        if self.audio_silenciado or resultado["calibrando"] or resultado.get("mirada_desviada"):
             self._detener_alertas()
             return
 
@@ -191,7 +189,7 @@ class MainWindow(QMainWindow):
         logo = QLabel("VIGILANT")
         logo.setObjectName("logo")
 
-        version = QLabel("SISTEMA DE MONITOREO DE SOMNOLENCIA • v2.0")
+        version = QLabel("SISTEMA DE MONITOREO DE SOMNOLENCIA • v2.0 (CNN ONNX)")
         version.setObjectName("subtitle")
 
         logo_layout.addWidget(logo)
@@ -207,7 +205,7 @@ class MainWindow(QMainWindow):
         self.source_select.setObjectName("source-select")
         self.source_select.addItem("Cámara USB", 1)
         self.source_select.addItem("Cámara integrada", 0)
-        self.source_select.addItem("Video Benchmark", str(self.raiz_proyecto / "assets" / "benchmark.mp4"))
+        self.source_select.addItem("Video Benchmark", str(self.raiz_proyecto / "assets" / "video" / "benchmark.mp4"))
         self.source_select.currentIndexChanged.connect(self._on_fuente_cambiada)
 
         header.addWidget(source_title)
@@ -256,7 +254,7 @@ class MainWindow(QMainWindow):
         video_title.setObjectName("section")
         video_layout.addWidget(video_title)
 
-        points_label = QLabel("MEDIAPIPE FACE MESH • OJOS • BOCA • POSE")
+        points_label = QLabel("MEDIAPIPE FACE MESH • CNN ONNX (OJOS) • BOCA • POSE 3D")
         points_label.setObjectName("muted")
         video_layout.addWidget(points_label)
 
@@ -280,7 +278,7 @@ class MainWindow(QMainWindow):
 
         left_panel.addWidget(video_card, 3)
 
-        # OSCILOSCOPIO EAR
+        # OSCILOSCOPIO IA (PROBABILIDAD DE CIERRE) / RESPALDO EAR
         graph_card = QFrame()
         graph_card.setObjectName("graph-card")
 
@@ -289,15 +287,15 @@ class MainWindow(QMainWindow):
         graph_layout.setSpacing(6)
 
         graph_header = QHBoxLayout()
-        graph_title = QLabel("OSCILOSCOPIO EAR EN TIEMPO REAL")
-        graph_title.setObjectName("section")
+        self.graph_title = QLabel("OSCILOSCOPIO IA • PROBABILIDAD DE CIERRE")
+        self.graph_title.setObjectName("section")
 
         self.graph_threshold_label = QLabel(
-            f"UMBRAL: {self.analyzer.ear_umbral:.3f}"
+            f"UMBRAL IA: {self.analyzer.prob_umbral_cierre * 100:.0f}%"
         )
         self.graph_threshold_label.setObjectName("threshold-info")
 
-        graph_header.addWidget(graph_title, 1)
+        graph_header.addWidget(self.graph_title, 1)
         graph_header.addWidget(self.graph_threshold_label)
         graph_layout.addLayout(graph_header)
 
@@ -306,27 +304,27 @@ class MainWindow(QMainWindow):
             self.graph.setObjectName("ear-graph")
             self.graph.setBackground("#030A13")
             self.graph.showGrid(x=True, y=True, alpha=0.20)
-            self.graph.setLabel("left", "EAR", color="#9CB2CA")
+            self.graph.setLabel("left", "P(Cerrado) %", color="#9CB2CA")
             self.graph.setLabel("bottom", "Muestras", color="#9CB2CA")
-            self.graph.setYRange(0, 0.5)
+            self.graph.setYRange(0, 105)
             self.graph.setMouseEnabled(x=False, y=False)
             self.graph.setMenuEnabled(False)
             self.graph.getAxis("left").setTextPen("#9CB2CA")
             self.graph.getAxis("bottom").setTextPen("#9CB2CA")
 
-            self.curva_ear = self.graph.plot(pen = pg.mkPen("#38BDF8", width = 2))
+            self.curva_principal = self.graph.plot(pen=pg.mkPen("#38BDF8", width=2))
             self.linea_umbral = pg.InfiniteLine(
-                pos = self.analyzer.ear_umbral,
-                angle = 0,
-                pen = pg.mkPen("#EF4444", width = 2, style = Qt.DotLine)
+                pos=self.analyzer.prob_umbral_cierre * 100.0,
+                angle=0,
+                pen=pg.mkPen("#EF4444", width=2, style=Qt.DotLine)
             )
             self.graph.addItem(self.linea_umbral)
             graph_layout.addWidget(self.graph, 1)
         else:
             self.graph = None
-            self.curva_ear = None
+            self.curva_principal = None
             self.linea_umbral = None
-            graph_message = QLabel("Instala pyqtgraph para visualizar el osciloscopio EAR")
+            graph_message = QLabel("Instala pyqtgraph para visualizar el osciloscopio en tiempo real")
             graph_message.setObjectName("muted")
             graph_message.setAlignment(Qt.AlignCenter)
             graph_layout.addWidget(graph_message)
@@ -376,7 +374,7 @@ class MainWindow(QMainWindow):
 
         right_panel.addWidget(state_card)
 
-        # TELEMETRÍA BIOMÉTRICA (3 columnas horizontales)
+        # TELEMETRÍA BIOMÉTRICA (Cuadrícula 2x2: IA CNN + EAR Ref + MAR + PITCH)
         metrics_card = QFrame()
         metrics_card.setObjectName("metrics-card")
 
@@ -384,24 +382,31 @@ class MainWindow(QMainWindow):
         metrics_layout.setContentsMargins(12, 10, 12, 10)
         metrics_layout.setSpacing(8)
 
-        metrics_title = QLabel("TELEMETRÍA BIOMÉTRICA")
+        metrics_title = QLabel("TELEMETRÍA BIOMÉTRICA • IA + GEOMETRÍA")
         metrics_title.setObjectName("section")
         metrics_layout.addWidget(metrics_title)
 
-        metrics_row = QHBoxLayout()
-        metrics_row.setSpacing(8)
+        metrics_grid = QGridLayout()
+        metrics_grid.setSpacing(8)
 
-        self.ear_label, self.ear_condition_label = self._crear_metrica(
-            metrics_row, "EAR (OJOS)", "0.000", f"< {self.analyzer.ear_umbral:.3f}"
+        self.ai_eye_label, self.ai_eye_condition_label = self._crear_metrica_grid(
+            metrics_grid, 0, 0,
+            "IA OJOS (CNN)", "--%", f">= {self.analyzer.prob_umbral_cierre * 100:.0f}%"
         )
-        self.mar_label, _ = self._crear_metrica(
-            metrics_row, "MAR (BOCA)", "0.000", f"> {self.analyzer.mar_umbral:.3f}"
+        self.ear_label, self.ear_condition_label = self._crear_metrica_grid(
+            metrics_grid, 0, 1,
+            "EAR (REF.)", "0.000", f"< {self.analyzer.ear_umbral:.3f}"
         )
-        self.pitch_label, self.pitch_condition_label = self._crear_metrica(
-            metrics_row, "PITCH", "0.0°", f"< {self.analyzer.pitch_umbral:.1f}°"
+        self.mar_label, _ = self._crear_metrica_grid(
+            metrics_grid, 1, 0,
+            "MAR (BOCA)", "0.000", f"> {self.analyzer.mar_umbral:.3f}"
+        )
+        self.pitch_label, self.pitch_condition_label = self._crear_metrica_grid(
+            metrics_grid, 1, 1,
+            "PITCH", "0.0°", f"< {self.analyzer.pitch_umbral:.1f}°"
         )
 
-        metrics_layout.addLayout(metrics_row)
+        metrics_layout.addLayout(metrics_grid)
 
         fatigue_separator = QFrame()
         fatigue_separator.setObjectName("inner-separator")
@@ -430,10 +435,10 @@ class MainWindow(QMainWindow):
         calibration_layout.setContentsMargins(12, 10, 12, 10)
         calibration_layout.setSpacing(6)
 
-        calibration_title = QLabel("CALIBRACIÓN DINÁMICA EAR")
+        calibration_title = QLabel("CALIBRACIÓN DINÁMICA (POSTURA / EAR)")
         calibration_title.setObjectName("section")
 
-        self.calibration_button = QPushButton("Calibrar EAR Dinámico (3 s)")
+        self.calibration_button = QPushButton("Calibrar Referencia (3 s)")
         self.calibration_button.setObjectName("calibration-button")
         self.calibration_button.clicked.connect(self._iniciar_calibracion)
 
@@ -443,7 +448,7 @@ class MainWindow(QMainWindow):
         self.calibration_progress.setValue(0)
 
         self.threshold_label = QLabel(
-            f"Umbral EAR: {self.analyzer.ear_umbral:.3f}"
+            f"Pitch: {self.analyzer.pitch_umbral:.1f}°  |  EAR resp.: {self.analyzer.ear_umbral:.3f}"
         )
         self.threshold_label.setObjectName("muted")
 
@@ -475,7 +480,7 @@ class MainWindow(QMainWindow):
 
         self.log_list = QListWidget()
         self.log_list.setObjectName("log-list")
-        self.log_list.setMinimumHeight(90)
+        self.log_list.setMinimumHeight(80)
 
         log_layout.addLayout(log_header)
         log_layout.addWidget(self.log_list, 1)
@@ -486,8 +491,8 @@ class MainWindow(QMainWindow):
 
         # PIE DE PÁGINA
         footer = QLabel(
-            "VIGILANT v2.0  |  MEDIAPIPE FACE MESH  |  "
-            "ANÁLISIS BIOMÉTRICO EN TIEMPO REAL  |  SQLITE"
+            "VIGILANT v2.0  |  CNN ONNX (OJOS)  |  "
+            "MEDIAPIPE FACE MESH  |  ANÁLISIS EN TIEMPO REAL  |  SQLITE"
         )
         footer.setObjectName("footer")
         footer.setAlignment(Qt.AlignCenter)
@@ -495,13 +500,13 @@ class MainWindow(QMainWindow):
 
         self._cargar_logs()
 
-    # CREAR TARJETA COMPACTA DE MÉTRICA
-    def _crear_metrica(self, layout, nombre, valor, condicion):
+    # CREAR TARJETA COMPACTA DE MÉTRICA EN GRID
+    def _crear_metrica_grid(self, grid, fila, col, nombre, valor, condicion):
         card = QFrame()
         card.setObjectName("metric-item")
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(8, 6, 8, 6)
+        card_layout.setContentsMargins(8, 5, 8, 5)
         card_layout.setSpacing(2)
 
         titulo = QLabel(nombre)
@@ -520,25 +525,26 @@ class MainWindow(QMainWindow):
         card_layout.addWidget(valor_label)
         card_layout.addWidget(condicion_label)
 
-        layout.addWidget(card, 1)
+        grid.addWidget(card, fila, col)
         return valor_label, condicion_label
 
-    # RECIBIR DATOS DEL VIDEO_WORKER
-    @Slot(np.ndarray, float, float, float, float)
-    def actualizar_frame(self, frame, ear, mar, pitch, yaw):
+    # RECIBIR DATOS DEL VIDEOWORKER
+    @Slot(np.ndarray, float, float, float, float, float)
+    def actualizar_frame(self, frame, ear, mar, pitch, yaw, prob_cierre):
         if self._cerrando:
             return
 
         self._actualizar_fps()
 
-        resultado = self.analyzer.evaluar(ear, mar, pitch, yaw)
+        resultado = self.analyzer.evaluar(ear, mar, pitch, yaw, prob_cierre)
 
         if ear >= 0:
             self._actualizar_metricas(ear, mar, pitch, resultado)
-            self._actualizar_grafica(ear)
+            self._actualizar_grafica(resultado)
             self._actualizar_calibracion(resultado["calibrando"])
             self._registrar_incidente(resultado)
         else:
+            self.ai_eye_label.setText("--")
             self.ear_label.setText("--")
             self.mar_label.setText("--")
             self.pitch_label.setText("--")
@@ -560,6 +566,15 @@ class MainWindow(QMainWindow):
 
     # ACTUALIZAR MÉTRICAS
     def _actualizar_metricas(self, ear, mar, pitch, resultado):
+        if resultado["modo_ojos"] == "IA_CNN" and resultado["prob_cierre_ema"] >= 0:
+            self.ai_eye_label.setText(f"{resultado['prob_cierre_ema'] * 100:.0f}%")
+            self.ai_eye_condition_label.setText(
+                f">= {self.analyzer.prob_umbral_cierre * 100:.0f}% (ACTIVA)"
+            )
+        else:
+            self.ai_eye_label.setText("OFF")
+            self.ai_eye_condition_label.setText("Respaldo EAR")
+
         self.ear_label.setText(f"{ear:.3f}")
         self.mar_label.setText(f"{mar:.3f}")
         self.pitch_label.setText(f"{pitch:.1f}°")
@@ -574,21 +589,57 @@ class MainWindow(QMainWindow):
             self.fatigue_label.style().unpolish(self.fatigue_label)
             self.fatigue_label.style().polish(self.fatigue_label)
 
-        self._sincronizar_umbral_ear()
+        self._sincronizar_umbrales()
 
-    def _sincronizar_umbral_ear(self):
-        umbral = self.analyzer.ear_umbral
-        self.ear_condition_label.setText(f"< {umbral:.3f}")
-        self.pitch_condition_label.setText(f"< {self.analyzer.pitch_umbral:.1f}°")
-        self.threshold_label.setText(f"Umbral EAR: {umbral:.3f}")
-        self.graph_threshold_label.setText(f"UMBRAL: {umbral:.3f}")
+    def _sincronizar_umbrales(self):
+        umbral_ear = self.analyzer.ear_umbral
+        umbral_pitch = self.analyzer.pitch_umbral
+        self.ear_condition_label.setText(f"< {umbral_ear:.3f}")
+        self.pitch_condition_label.setText(f"< {umbral_pitch:.1f}°")
+        self.threshold_label.setText(
+            f"Pitch: {umbral_pitch:.1f}°  |  EAR resp.: {umbral_ear:.3f}"
+        )
 
-    # ACTUALIZAR GRÁFICA
-    def _actualizar_grafica(self, ear):
-        self.historial_ear.append(ear)
+    # CONFIGURAR Y ACTUALIZAR GRÁFICA (IA 0-100% O RESPALDO EAR)
+    def _configurar_modo_grafica(self, modo):
+        if modo == self._modo_grafica:
+            return
+
+        self._modo_grafica = modo
+        self.historial_grafica.clear()
+
+        if modo == "IA_CNN":
+            umbral_pct = self.analyzer.prob_umbral_cierre * 100.0
+            self.graph_title.setText("OSCILOSCOPIO IA • PROBABILIDAD DE CIERRE")
+            self.graph_threshold_label.setText(f"UMBRAL IA: {umbral_pct:.0f}%")
+            if self.graph is not None:
+                self.graph.setLabel("left", "P(Cerrado) %", color="#9CB2CA")
+                self.graph.setYRange(0, 105)
+                self.linea_umbral.setValue(umbral_pct)
+        else:
+            self.graph_title.setText("OSCILOSCOPIO EAR (MODO RESPALDO)")
+            self.graph_threshold_label.setText(f"UMBRAL EAR: {self.analyzer.ear_umbral:.3f}")
+            if self.graph is not None:
+                self.graph.setLabel("left", "EAR", color="#9CB2CA")
+                self.graph.setYRange(0, 0.5)
+                self.linea_umbral.setValue(self.analyzer.ear_umbral)
+
+    def _actualizar_grafica(self, resultado):
+        modo = resultado["modo_ojos"]
+        self._configurar_modo_grafica(modo)
+
+        if modo == "IA_CNN" and resultado["prob_cierre_ema"] >= 0:
+            valor = resultado["prob_cierre_ema"] * 100.0
+            umbral_linea = self.analyzer.prob_umbral_cierre * 100.0
+        else:
+            valor = max(0.0, resultado["ear_ema"])
+            umbral_linea = self.analyzer.ear_umbral
+            self.graph_threshold_label.setText(f"UMBRAL EAR: {umbral_linea:.3f}")
+
+        self.historial_grafica.append(valor)
         if self.graph is not None:
-            self.curva_ear.setData(list(self.historial_ear))
-            self.linea_umbral.setValue(self.analyzer.ear_umbral)
+            self.curva_principal.setData(list(self.historial_grafica))
+            self.linea_umbral.setValue(umbral_linea)
 
     # ACTUALIZAR ESTADO DEL CONDUCTOR
     def _actualizar_semaforo(self, resultado):
@@ -671,35 +722,30 @@ class MainWindow(QMainWindow):
         else:
             self.calibration_progress.setValue(100)
             self.calibration_button.setEnabled(True)
-            self.calibration_button.setText("Calibrar EAR Dinámico (3 s)")
-            self._sincronizar_umbral_ear()
+            self.calibration_button.setText("Calibrar Referencia (3 s)")
+            self._sincronizar_umbrales()
             self.inicio_calibracion = None
 
     # CAMBIO DE FUENTE
     def _on_fuente_cambiada(self, indice):
         self._detener_alertas()
         fuente = self.source_select.currentData()
-        self.fuente_preferida = fuente
         self.source_changed.emit(fuente)
 
         self.status_label.setText("CAMBIANDO FUENTE")
         self.fps_label.setText("FPS: --")
-        self.historial_ear.clear()
+        self.historial_grafica.clear()
         self.ultimo_frame_tiempo = None
 
         if self.graph is not None:
-            self.curva_ear.setData([])
+            self.curva_principal.setData([])
 
     @Slot(object)
     def sincronizar_fuente_activa(self, fuente_real):
-        cambio_real = fuente_real != self.fuente_activa
-        self.fuente_activa = fuente_real    
-
-        if cambio_real:
-            self.historial_ear.clear()
-            self.ultimo_frame_tiempo = None
-            if self.graph is not None:
-                self.curva_ear.setData([])
+        self.historial_grafica.clear()
+        self.ultimo_frame_tiempo = None
+        if self.graph is not None:
+            self.curva_principal.setData([])
 
         if fuente_real is None:
             self.camera_label.setText("● SIN CÁMARA DISPONIBLE")
@@ -714,40 +760,6 @@ class MainWindow(QMainWindow):
 
         nombre = self.source_select.currentText().upper()
         self.camera_label.setText(f"● {nombre} ACTIVA")
-
-    def _inicializar_monitor_camaras(self):
-        if QMediaDevices is not None:
-            self.media_devices = QMediaDevices(self)
-            self.media_devices.videoInputsChanged.connect(
-                self._on_dispositivos_video_cambiados
-        )
-
-    def _on_dispositivos_video_cambiados(self):
-        if self._cerrando or QMediaDevices is None:
-            return
-
-        num_camaras = len(QMediaDevices.videoInputs())
-
-        # Reconexión USB cuando el usuario quiere USB pero estaba en respaldo
-        if self.fuente_preferida == 1 and self.fuente_activa != 1 and num_camaras >= 2:
-            QTimer.singleShot(800, self._reintentar_camara_preferida)
-    
-        # Recuperación si antes no había ninguna cámara disponible
-        elif (
-            self.fuente_activa is None
-            and isinstance(self.fuente_preferida, int)
-            and num_camaras >= 1
-        ):
-            QTimer.singleShot(800, self._reintentar_camara_preferida)
-
-    def _reintentar_camara_preferida(self):
-        if self._cerrando:
-            return
-
-        if self.fuente_preferida == 1 and self.fuente_activa != 1:
-            self.source_changed.emit(1)
-        elif self.fuente_activa is None and isinstance(self.fuente_preferida, int):
-            self.source_changed.emit(self.fuente_preferida)
 
     # REGISTRO DE INCIDENTES
     def _registrar_incidente(self, resultado):
@@ -790,13 +802,13 @@ class MainWindow(QMainWindow):
     def _mostrar_video(self, frame):
         h, w, ch = frame.shape
         q_img = QImage(
-            frame.data, 
-            w, 
-            h, 
-            ch * w, 
+            frame.data,
+            w,
+            h,
+            ch * w,
             QImage.Format_BGR888
         ).copy()
-        
+
         pixmap = QPixmap.fromImage(q_img)
         self.ultimo_pixmap = pixmap
 

@@ -1,9 +1,11 @@
 import os
+import threading
 import cv2
 import mediapipe as mp
 import numpy as np
-import threading
+
 from PySide6.QtCore import QThread, Signal
+
 from src.ai.eye_classifier import EyeStateClassifier
 from src.analytics.metrics import (
     obtener_ear_promedio,
@@ -11,11 +13,11 @@ from src.analytics.metrics import (
     obtener_pose_cabeza
 )
 
+
 class VideoWorker(QThread):
 
-    # Enviar fotograma, EAR, MAR, PITCH, YAW y probabilidad CNN de ojos cerrados
+    # Fotograma, EAR, MAR, PITCH, YAW y probabilidad CNN de ojos cerrados [0..1] (-1 si no aplica)
     frame_processed = Signal(np.ndarray, float, float, float, float, float)
-
     # Notificar a la UI qué fuente quedó realmente activa (1, 0, ruta str o None)
     source_active = Signal(object)
 
@@ -24,14 +26,11 @@ class VideoWorker(QThread):
         self._is_running = True
         self.camera_index = camera_index
 
-        # Permite solicitar un cambio de fuente de forma segura
         self._source_lock = threading.Lock()
         self._pending_source = None
         self._source_changed = False
 
     def set_source(self, source):
-
-        # Recibe el índice de cámara o la ruta del video
         with self._source_lock:
             self._pending_source = source
             self._source_changed = True
@@ -53,17 +52,15 @@ class VideoWorker(QThread):
             if ok:
                 return cap
         cap.release()
-
         return None
 
     def _abrir_fuente(self, source):
         if isinstance(source, int):
             cap = self._intentar_camara(source)
             if cap is not None:
-
                 return cap, source
 
-            # Si falló la USB (1), hacer fallback real a la integrada (0)
+            # Fallback real a la cámara integrada (0) si falló la USB (1)
             if source != 0:
                 cap = self._intentar_camara(0)
                 if cap is not None:
@@ -76,7 +73,6 @@ class VideoWorker(QThread):
         if cap.isOpened():
             return cap, source
         cap.release()
-
         return None, None
 
     def run(self):
@@ -89,34 +85,25 @@ class VideoWorker(QThread):
 
         cap, fuente_actual = self._abrir_fuente(self.camera_index)
         self.source_active.emit(fuente_actual)
-        
-        # fallos_lectura = 0
 
         try:
             with mp_face_mesh.FaceMesh(
-                max_num_faces = 1,
-                refine_landmarks = True,
-                min_detection_confidence = 0.5,
-                min_tracking_confidence = 0.5
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5
             ) as face_mesh:
 
                 while self._is_running:
-
-                    # Comprobar si la interfaz solicitó otra fuente
                     cambio, nueva_fuente = self._obtener_nueva_fuente()
 
                     if cambio:
-
-                        # Evitar parpadeo si ya estamos usando exactamente esa fuente
                         if nueva_fuente == fuente_actual and cap is not None and cap.isOpened():
                             continue
 
                         if cap is not None:
                             cap.release()
                         cap, fuente_actual = self._abrir_fuente(nueva_fuente)
-        
-                        # fallos_lectura = 0
-        
                         self.source_active.emit(fuente_actual)
 
                     if cap is None or not cap.isOpened():
@@ -126,33 +113,13 @@ class VideoWorker(QThread):
                     success, image = cap.read()
 
                     if not success:
-
-                        # Si es archivo de video, reinicia en bucle sin matar el hilo
                         if isinstance(fuente_actual, str):
                             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                             self.msleep(30)
                             continue
 
-                        # fallos_lectura += 1
-
-                        # ~0.5 s de fallos seguidos = cámara desconectada
-                        # if fallos_lectura >= 10:
-                        #     cap.release()
-                        #     cap = None
-                        #     fallos_lectura = 0
-
-                        #     if fuente_actual != 0:
-                        #         cap, fuente_actual = self._abrir_fuente(0)
-                        #     else:
-                        #         fuente_actual = None
-
-                        #     self.source_active.emit(fuente_actual)
-                        
-                        # Si es cámara, espera brevemente a que se recupere o cambie la fuente
                         self.msleep(50)
                         continue
-
-                    # fallos_lectura = 0
 
                     # Efecto espejo solo en cámaras en vivo
                     if isinstance(fuente_actual, int):
@@ -165,7 +132,6 @@ class VideoWorker(QThread):
                     image_rgb.flags.writeable = True
                     image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
 
-                    # -1.0 significa que no se detectó un rostro
                     ear_actual = -1.0
                     mar_actual = -1.0
                     pitch_actual = 0.0
@@ -174,46 +140,25 @@ class VideoWorker(QThread):
 
                     if results.multi_face_landmarks:
                         h, w, _ = image.shape
+                        face_landmarks = results.multi_face_landmarks[0]
 
-                        for face_landmarks in results.multi_face_landmarks:
+                        ear_actual = obtener_ear_promedio(face_landmarks, w, h)
+                        mar_actual = obtener_mar(face_landmarks, w, h)
+                        pitch_actual, yaw_actual = obtener_pose_cabeza(face_landmarks, w, h)
 
-                            # Calcular EAR
-                            ear_actual = obtener_ear_promedio(
-                                face_landmarks,
-                                w,
-                                h
-                            )
+                        # IMPORTANTE: clasificar ojos ANTES de dibujar la malla facial
+                        prob_cierre_actual, _, _ = eye_classifier.predecir_probabilidad_cierre(
+                            image, face_landmarks
+                        )
 
-                            # Calcular MAR
-                            mar_actual = obtener_mar(
-                                face_landmarks,
-                                w,
-                                h
-                            )
+                        mp_drawing.draw_landmarks(
+                            image=image,
+                            landmark_list=face_landmarks,
+                            connections=mp_face_mesh.FACEMESH_TESSELATION,
+                            landmark_drawing_spec=None,
+                            connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
+                        )
 
-                            # Calcular PITCH
-                            pitch_actual, yaw_actual = obtener_pose_cabeza(
-                                face_landmarks, 
-                                w, 
-                                h
-                            )
-
-                            # Clasificar ojos ANTES de dibujar la malla facial
-                            prob_cierre_actual, _, _ = eye_classifier.predecir_probabilidad_cierre(
-                                image, 
-                                face_landmarks
-                            )
-
-                            # Dibujar la malla facial
-                            mp_drawing.draw_landmarks(
-                                image = image,
-                                landmark_list = face_landmarks,
-                                connections = mp_face_mesh.FACEMESH_TESSELATION,
-                                landmark_drawing_spec = None,
-                                connection_drawing_spec = mp_drawing_styles.get_default_face_mesh_tesselation_style()
-                            )
-
-                    # Enviar los datos a la interfaz
                     self.frame_processed.emit(
                         image,
                         ear_actual,
