@@ -13,7 +13,8 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 
 def crear_icono(nombre, color="#CBD5E1", size=18):
-    """Genera iconos vectoriales nitidos con QPainter sin depender de archivos externos."""
+
+    # Genera iconos vectoriales nitidos con QPainter sin depender de archivos externos.
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
 
@@ -21,7 +22,15 @@ def crear_icono(nombre, color="#CBD5E1", size=18):
     p.setRenderHint(QPainter.Antialiasing)
 
     c = QColor(color)
-    pen = QPen(c, max(1.5, size * 0.095), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    
+    pen = QPen(
+        c, 
+        max(1.5, size * 0.095), 
+        Qt.SolidLine, 
+        Qt.RoundCap, 
+        Qt.RoundJoin
+    )
+
     p.setPen(pen)
     p.setBrush(Qt.NoBrush)
 
@@ -33,12 +42,41 @@ def crear_icono(nombre, color="#CBD5E1", size=18):
         grad.setColorAt(1.0, QColor("#2563EB"))
 
         escudo = QPainterPath()
-        escudo.moveTo(s * 0.50, s * 0.08)
-        escudo.lineTo(s * 0.86, s * 0.22)
-        escudo.lineTo(s * 0.86, s * 0.52)
-        escudo.quadTo(s * 0.86, s * 0.80, s * 0.50, s * 0.93)
-        escudo.quadTo(s * 0.14, s * 0.80, s * 0.14, s * 0.52)
-        escudo.lineTo(s * 0.14, s * 0.22)
+        
+        escudo.moveTo(
+            s * 0.50, 
+            s * 0.08
+        )
+        
+        escudo.lineTo(
+            s * 0.86, 
+            s * 0.22
+        )
+
+        escudo.lineTo(
+            s * 0.86, 
+            s * 0.52
+        )
+        
+        escudo.quadTo(
+            s * 0.86, 
+            s * 0.80, 
+            s * 0.50, 
+            s * 0.93
+        )
+
+        escudo.quadTo(
+            s * 0.14, 
+            s * 0.80, 
+            s * 0.14, 
+            s * 0.52
+        )
+
+        escudo.lineTo(
+            s * 0.14, 
+            s * 0.22
+        )
+
         escudo.closeSubpath()
 
         p.setPen(QPen(QColor("#7DD3FC"), s * 0.05))
@@ -47,32 +85,98 @@ def crear_icono(nombre, color="#CBD5E1", size=18):
 
         # Ojo interior
         ojo = QPainterPath()
-        ojo.moveTo(s * 0.28, s * 0.50)
-        ojo.quadTo(s * 0.50, s * 0.30, s * 0.72, s * 0.50)
-        ojo.quadTo(s * 0.50, s * 0.70, s * 0.28, s * 0.50)
+        
+        ojo.moveTo(
+            s * 0.28, 
+            s * 0.50
+        )
+        
+        ojo.quadTo(
+            s * 0.50, 
+            s * 0.30, 
+            s * 0.72, 
+            s * 0.50
+        )
+
+        ojo.quadTo(
+            s * 0.50, 
+            s * 0.70, 
+            s * 0.28, 
+            s * 0.50
+        )
+
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#0B1220"))
         p.drawPath(ojo)
 
         p.setBrush(QColor("#E0F2FE"))
-        p.drawEllipse(QPointF(s * 0.50, s * 0.50), s * 0.10, s * 0.10)
+        
+        p.drawEllipse(
+            QPointF(s * 0.50, s * 0.50), 
+            s * 0.10, 
+            s * 0.10
+        )
 
     elif nombre == "home":
         techo = QPainterPath()
-        techo.moveTo(s * 0.16, s * 0.48)
-        techo.lineTo(s * 0.50, s * 0.18)
-        techo.lineTo(s * 0.84, s * 0.48)
+        
+        techo.moveTo(
+            s * 0.16, 
+            s * 0.48
+        )
+        
+        techo.lineTo(
+            s * 0.50, 
+            s * 0.18
+        )
+
+        techo.lineTo(
+            s * 0.84, 
+            s * 0.48
+        )
+        
         p.drawPath(techo)
-        p.drawRoundedRect(QRectF(s * 0.27, s * 0.46, s * 0.46, s * 0.36), 1.5, 1.5)
+        
+        p.drawRoundedRect(
+            QRectF(
+                s * 0.27, 
+                s * 0.46, 
+                s * 0.46, 
+                s * 0.36
+            ), 
+            1.5, 
+            1.5)
 
     elif nombre == "reports":
-        p.drawLine(QPointF(s * 0.24, s * 0.80), QPointF(s * 0.24, s * 0.52))
-        p.drawLine(QPointF(s * 0.50, s * 0.80), QPointF(s * 0.50, s * 0.24))
-        p.drawLine(QPointF(s * 0.76, s * 0.80), QPointF(s * 0.76, s * 0.38))
+        p.drawLine(
+            QPointF(s * 0.24, s * 0.80), 
+            QPointF(s * 0.24, s * 0.52)
+        )
+        p.drawLine(
+            QPointF(s * 0.50, s * 0.80), 
+            QPointF(s * 0.50, s * 0.24)
+        )
+        p.drawLine(
+            QPointF(s * 0.76, s * 0.80), 
+            QPointF(s * 0.76, s * 0.38)
+        )
 
     elif nombre == "settings":
-        p.drawEllipse(QPointF(s * 0.50, s * 0.50), s * 0.17, s * 0.17)
-        p.drawEllipse(QPointF(s * 0.50, s * 0.50), s * 0.33, s * 0.33)
+        p.drawEllipse(
+            QPointF(
+                s * 0.50, 
+                s * 0.50
+            ), 
+            s * 0.17, 
+            s * 0.17)
+        p.drawEllipse(
+            QPointF(
+                s * 0.50, 
+                s * 0.50
+            ), 
+            s * 0.33, 
+            s * 0.33
+        )
 
     elif nombre == "info":
         p.drawEllipse(QPointF(s * 0.50, s * 0.50), s * 0.38, s * 0.38)
