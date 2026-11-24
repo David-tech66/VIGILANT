@@ -128,3 +128,5 @@ class EyeStateClassifier:
 
         prob_promedio = float(np.mean(probs))
         return prob_promedio, p_izq, p_der
+
+    
