@@ -210,7 +210,6 @@ class GlassCard(QFrame):
         self._radius = radius
         self._bg_alpha = bg_alpha
         self._glow_color = QColor(glow_color) if glow_color else None
-        self.setAttribute(Qt.WA_TranslucentBackground)
 
     def set_glow_color(self, hex_color):
         nuevo = QColor(hex_color) if hex_color else None
@@ -272,15 +271,15 @@ class MetricCard(QFrame):
     def __init__(self, titulo, valor_inicial, condicion, icono_nombre, accent_color, parent=None):
         super().__init__(parent)
         self._accent = QColor(accent_color)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumHeight(76)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 9, 10, 9)
-        layout.setSpacing(3)
+        layout.setContentsMargins(14, 7, 10, 7)
+        layout.setSpacing(2)
 
         top = QHBoxLayout()
         top.setSpacing(6)
-        top.addWidget(crear_label_icono(icono_nombre, accent_color, 16))
+        top.addWidget(crear_label_icono(icono_nombre, accent_color, 15))
 
         lbl_titulo = QLabel(titulo)
         lbl_titulo.setObjectName("metric-title")
@@ -289,6 +288,7 @@ class MetricCard(QFrame):
 
         self.value_label = QLabel(valor_inicial)
         self.value_label.setObjectName("metric-value")
+        self.value_label.setMinimumHeight(24)
         layout.addWidget(self.value_label)
 
         self.condition_label = QLabel(condicion)

@@ -50,11 +50,16 @@ class VideoWorker(QThread):
         backend = cv2.CAP_MSMF if os.name == "nt" else cv2.CAP_ANY
         cap = cv2.VideoCapture(indice, backend)
         if cap.isOpened():
-            ok, _ = cap.read()
-            if ok:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            ok, frame = cap.read()
+            if ok and frame is not None:
+                h, w = frame.shape[:2]
+                print(f"[VIGILANT] Cámara {indice} abierta en {w}x{h}")
                 return cap
         cap.release()
-        
         return None
 
     def _abrir_fuente(self, source):
@@ -156,17 +161,19 @@ class VideoWorker(QThread):
 
                     # Efecto espejo solo en cámaras en vivo
                     if isinstance(fuente_actual, str):
-                        h_vid, w_vid = image.shape[:2]
-                        if w_vid > 640:
-                            escala = 640.0 / w_vid
+                        # Normalizar a 640 px de ancho en cámaras y videos antes de MediaPipe
+                        h_img, w_img = image.shape[:2]
+                        if w_img > 640:
+                            escala = 640.0 / w_img
                             image = cv2.resize(
                                 image,
-                                (640, int(h_vid * escala)),
+                                (640, int(h_img * escala)),
                                 interpolation=cv2.INTER_AREA
                             )
-                    else:
+
                         # Efecto espejo solo en cámaras en vivo
-                        image = cv2.flip(image, 1)
+                        if not isinstance(fuente_actual, str):
+                            image = cv2.flip(image, 1)
 
                     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                     image_rgb.flags.writeable = False

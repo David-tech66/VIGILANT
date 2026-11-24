@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from PySide6.QtCore import Qt, Slot, Signal, QUrl, QTimer, QSize
-from PySide6.QtGui import QColor, QImage, QLinearGradient, QPixmap
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -68,7 +69,8 @@ class MainWindow(QMainWindow):
         self._modo_grafica = None
         self.ultimo_pixmap = None
         self.inicio_calibracion = None
-        self.ultimo_frame_tiempo = None
+        self._tiempos_fps = deque(maxlen=20)
+        self._contador_frames = 0
         self._ultimo_estilo_fatiga = None
         self._ultimo_estado_visual = None
         self._cerrando = False
@@ -245,7 +247,7 @@ class MainWindow(QMainWindow):
     def _construir_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(148)
+        sidebar.setFixedWidth(168)
 
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(12, 16, 12, 16)
@@ -373,7 +375,7 @@ class MainWindow(QMainWindow):
         # COLUMNA IZQUIERDA (VISOR + OSCILOSCOPIO)
         # ======================================================
         left_col = QVBoxLayout()
-        left_col.setSpacing(14)
+        left_col.setSpacing(12)
 
         # --- TARJETA 1: VISOR DE MONITOREO FACIAL ---
         video_card = GlassCard(radius=14, bg_alpha=172)
@@ -415,6 +417,7 @@ class MainWindow(QMainWindow):
         self.video_label.setObjectName("video")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setMinimumSize(460, 230)
+        self.video_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         vf_layout.addWidget(self.video_label)
 
         video_layout.addWidget(video_frame, 1)
@@ -444,8 +447,7 @@ class MainWindow(QMainWindow):
 
         if PYQTGRAPH_DISPONIBLE:
             self.graph = pg.PlotWidget()
-            self.graph.setBackground(None)
-            self.graph.setStyleSheet("background: transparent;")
+            self.graph.setBackground("#0D1526")
             self.graph.showGrid(x=True, y=True, alpha=0.16)
             self.graph.setLabel("left", "Probabilidad (%)", color="#94A3B8")
             self.graph.setLabel("bottom", "Muestras", color="#94A3B8")
@@ -458,9 +460,9 @@ class MainWindow(QMainWindow):
             self.graph.getAxis("bottom").setPen(pg.mkPen(color=(148, 163, 184, 55)))
 
             self.curva_principal = self.graph.plot(
-                pen=pg.mkPen("#38BDF8", width=2.3),
+                pen=pg.mkPen("#38BDF8", width=2.2),
                 fillLevel=0,
-                brush=self._crear_brush_curva(100.0),
+                brush=pg.mkBrush(56, 189, 248, 42),
             )
             self.linea_umbral = pg.InfiniteLine(
                 pos=self.analyzer.prob_umbral_cierre * 100.0,
@@ -478,7 +480,7 @@ class MainWindow(QMainWindow):
             msg.setAlignment(Qt.AlignCenter)
             graph_layout.addWidget(msg, 1)
 
-        # Banner inferior de estado (como en ambos bocetos)
+        # Banner inferior de estado
         self.status_banner = QFrame()
         self.status_banner.setObjectName("status-banner")
         banner_layout = QVBoxLayout(self.status_banner)
@@ -504,13 +506,13 @@ class MainWindow(QMainWindow):
         # COLUMNA DERECHA (ESTADO + TELEMETRÍA + CALIBRACIÓN + LOGS)
         # ======================================================
         right_col = QVBoxLayout()
-        right_col.setSpacing(12)
+        right_col.setSpacing(8)
 
         # --- TARJETA 1: ESTADO DEL CONDUCTOR ---
         self.state_card = GlassCard(radius=14, bg_alpha=178, glow_color="#22C55E")
         state_layout = QVBoxLayout(self.state_card)
-        state_layout.setContentsMargins(14, 12, 14, 14)
-        state_layout.setSpacing(10)
+        state_layout.setContentsMargins(14, 10, 14, 10)
+        state_layout.setSpacing(8)
 
         state_header = QHBoxLayout()
         state_header.setSpacing(8)
@@ -521,10 +523,10 @@ class MainWindow(QMainWindow):
         state_layout.addLayout(state_header)
 
         state_body = QHBoxLayout()
-        state_body.setSpacing(14)
-        state_body.setContentsMargins(8, 2, 8, 2)
+        state_body.setSpacing(12)
+        state_body.setContentsMargins(6, 0, 6, 0)
 
-        self.state_badge = StatusBadgeIcon(size=52)
+        self.state_badge = StatusBadgeIcon(size=44)
         state_body.addWidget(self.state_badge)
 
         state_text = QVBoxLayout()
@@ -545,8 +547,8 @@ class MainWindow(QMainWindow):
         # --- TARJETA 2: TELEMETRÍA BIOMÉTRICA (GRID 2x2) ---
         metrics_card = GlassCard(radius=14, bg_alpha=172)
         metrics_layout = QVBoxLayout(metrics_card)
-        metrics_layout.setContentsMargins(14, 12, 14, 12)
-        metrics_layout.setSpacing(10)
+        metrics_layout.setContentsMargins(14, 10, 14, 10)
+        metrics_layout.setSpacing(8)
 
         m_header = QHBoxLayout()
         m_header.setSpacing(8)
@@ -557,7 +559,7 @@ class MainWindow(QMainWindow):
         metrics_layout.addLayout(m_header)
 
         metrics_grid = QGridLayout()
-        metrics_grid.setSpacing(9)
+        metrics_grid.setSpacing(8)
 
         self.card_ai = MetricCard(
             "IA OJOS (CNN)",
@@ -616,8 +618,8 @@ class MainWindow(QMainWindow):
         # --- TARJETA 3: CALIBRACIÓN DINÁMICA ---
         cal_card = GlassCard(radius=14, bg_alpha=172)
         cal_layout = QVBoxLayout(cal_card)
-        cal_layout.setContentsMargins(14, 11, 14, 11)
-        cal_layout.setSpacing(8)
+        cal_layout.setContentsMargins(14, 10, 14, 10)
+        cal_layout.setSpacing(6)
 
         cal_header = QHBoxLayout()
         cal_header.setSpacing(8)
@@ -652,8 +654,8 @@ class MainWindow(QMainWindow):
         # --- TARJETA 4: HISTORIAL DE INCIDENTES ---
         log_card = GlassCard(radius=14, bg_alpha=172)
         log_layout = QVBoxLayout(log_card)
-        log_layout.setContentsMargins(14, 11, 14, 11)
-        log_layout.setSpacing(8)
+        log_layout.setContentsMargins(14, 10, 14, 10)
+        log_layout.setSpacing(6)
 
         log_header = QHBoxLayout()
         log_header.setSpacing(8)
@@ -678,7 +680,7 @@ class MainWindow(QMainWindow):
 
         self.log_list = QListWidget()
         self.log_list.setObjectName("log-list")
-        self.log_list.setMinimumHeight(92)
+        self.log_list.setMinimumHeight(72)
         log_layout.addWidget(self.log_list, 1)
 
         right_col.addWidget(log_card, 1)
@@ -711,13 +713,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(card)
         return contenedor
 
-    @staticmethod
-    def _crear_brush_curva(max_y):
-        grad = QLinearGradient(0, max_y, 0, 0)
-        grad.setColorAt(0.0, QColor(56, 189, 248, 105))
-        grad.setColorAt(1.0, QColor(37, 99, 235, 10))
-        return grad
-
     # ==========================================================
     # RECIBIR DATOS DEL VIDEOWORKER
     # ==========================================================
@@ -748,11 +743,12 @@ class MainWindow(QMainWindow):
 
     def _actualizar_fps(self):
         ahora = time.perf_counter()
-        if self.ultimo_frame_tiempo is not None:
-            diferencia = ahora - self.ultimo_frame_tiempo
-            if diferencia > 0:
-                self.fps_label.setText(f"FPS: {1 / diferencia:.1f}")
-        self.ultimo_frame_tiempo = ahora
+        self._tiempos_fps.append(ahora)
+        if len(self._tiempos_fps) >= 2:
+            span = self._tiempos_fps[-1] - self._tiempos_fps[0]
+            if span > 0:
+                fps = (len(self._tiempos_fps) - 1) / span
+                self.fps_label.setText(f"FPS: {fps:.1f}")
 
     # ==========================================================
     # MÉTRICAS Y GRÁFICA
@@ -806,7 +802,6 @@ class MainWindow(QMainWindow):
             if self.graph is not None:
                 self.graph.setLabel("left", "Probabilidad (%)", color="#94A3B8")
                 self.graph.setYRange(0, 105)
-                self.curva_principal.setBrush(self._crear_brush_curva(100.0))
                 self.linea_umbral.setValue(umbral_pct)
         else:
             self.graph_title.setText("Osciloscopio EAR (Modo Respaldo)")
@@ -814,7 +809,6 @@ class MainWindow(QMainWindow):
             if self.graph is not None:
                 self.graph.setLabel("left", "EAR", color="#94A3B8")
                 self.graph.setYRange(0, 0.5)
-                self.curva_principal.setBrush(self._crear_brush_curva(0.5))
                 self.linea_umbral.setValue(self.analyzer.ear_umbral)
 
     def _actualizar_grafica(self, resultado):
@@ -830,7 +824,8 @@ class MainWindow(QMainWindow):
             self.graph_threshold_label.setText(f"Umbral EAR: {umbral_linea:.3f}")
 
         self.historial_grafica.append(valor)
-        if self.graph is not None:
+        self._contador_frames += 1
+        if self.graph is not None and (self._contador_frames % 2 == 0):
             self.curva_principal.setData(list(self.historial_grafica))
             self.linea_umbral.setValue(umbral_linea)
 
@@ -989,7 +984,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("● CAMBIANDO FUENTE")
         self.fps_label.setText("FPS: --")
         self.historial_grafica.clear()
-        self.ultimo_frame_tiempo = None
+        self._tiempos_fps.clear()
 
         if self.graph is not None:
             self.curva_principal.setData([])
@@ -1001,7 +996,7 @@ class MainWindow(QMainWindow):
 
         if cambio_real:
             self.historial_grafica.clear()
-            self.ultimo_frame_tiempo = None
+            self._tiempos_fps.clear()
             if self.graph is not None:
                 self.curva_principal.setData([])
 
