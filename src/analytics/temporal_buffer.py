@@ -1,7 +1,6 @@
 import time
 from collections import deque
 
-
 class DrowsinessAnalyzer:
 
     # =========================================================================
@@ -117,6 +116,7 @@ class DrowsinessAnalyzer:
         if ear == -1.0:
             self._reiniciar_eventos_activos()
             self._reiniciar_suavizado()
+            
             return {
                 "estado": self.ESTADO_PERDIDO,
                 "duracion_evento": 0.0,
@@ -130,10 +130,29 @@ class DrowsinessAnalyzer:
         # --- BLOQUE 4.2: SUAVIZADO Y TELEMETRÍA ---
         # Qué es: Aplicación del filtro EMA y registro en la cola historial_ear.
         # Para qué sirve: Estabilizar los valores antes de evaluarlos y alimentar la gráfica.
-        ear_s = self._suavizar("_ear_suave", ear, self.alpha_ear)
-        mar_s = self._suavizar("_mar_suave", mar, self.alpha_mar)
-        pitch_s = self._suavizar("_pitch_suave", pitch, self.alpha_pose)
-        yaw_s = self._suavizar("_yaw_suave", yaw, self.alpha_pose)
+        ear_s = self._suavizar(
+            "_ear_suave", 
+            ear, 
+            self.alpha_ear
+        )
+        
+        mar_s = self._suavizar(
+            "_mar_suave", 
+            mar, 
+            self.alpha_mar
+        )
+        
+        pitch_s = self._suavizar(
+            "_pitch_suave", 
+            pitch, 
+            self.alpha_pose
+        )
+        
+        yaw_s = self._suavizar(
+            "_yaw_suave", 
+            yaw, 
+            self.alpha_pose
+        )
 
         self.historial_ear.append(ear_s)
 
@@ -175,6 +194,7 @@ class DrowsinessAnalyzer:
         # Para qué sirve: Pausar timers al mirar espejos y evitar falsos microsueños.
         if abs(yaw_s) > self.yaw_umbral and not self._microsueno_reportado:
             self._reiniciar_eventos_activos()
+            
             return {
                 "estado": self.ESTADO_FATIGA if fatiga_acumulada else self.ESTADO_NORMAL,
                 "duracion_evento": 0.0,
@@ -260,6 +280,7 @@ class DrowsinessAnalyzer:
             if duracion_ojos >= limite_microsueno:
                 nuevo_microsueno = not self._microsueno_reportado
                 self._microsueno_reportado = True
+                
                 return {
                     "estado": self.ESTADO_MICROSUEÑO,
                     "duracion_evento": round(duracion_ojos, 2),
@@ -325,5 +346,7 @@ class DrowsinessAnalyzer:
 
     def _tiene_fatiga_reciente(self, ahora: float) -> bool:
         if self._ultima_fatiga is None:
+            
             return False
+        
         return (ahora - self._ultima_fatiga) <= self.ventana_fatiga

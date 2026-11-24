@@ -4,6 +4,7 @@ import mediapipe as mp
 import numpy as np
 import threading
 from PySide6.QtCore import QThread, Signal
+from src.ai.eye_classifier import EyeStateClassifier
 from src.analytics.metrics import (
     obtener_ear_promedio,
     obtener_mar,
@@ -12,8 +13,8 @@ from src.analytics.metrics import (
 
 class VideoWorker(QThread):
 
-    # Enviar fotograma, EAR, MAR, PITCH y YAW a la interfaz
-    frame_processed = Signal(np.ndarray, float, float, float, float)
+    # Enviar fotograma, EAR, MAR, PITCH, YAW y probabilidad CNN de ojos cerrados
+    frame_processed = Signal(np.ndarray, float, float, float, float, float)
 
     # Notificar a la UI qué fuente quedó realmente activa (1, 0, ruta str o None)
     source_active = Signal(object)
@@ -75,6 +76,7 @@ class VideoWorker(QThread):
         if cap.isOpened():
             return cap, source
         cap.release()
+
         return None, None
 
     def run(self):
@@ -82,9 +84,13 @@ class VideoWorker(QThread):
         mp_drawing = mp.solutions.drawing_utils
         mp_drawing_styles = mp.solutions.drawing_styles
 
+        # Cargar modelo ONNX dentro del worker para no bloquear el arranque de la UI
+        eye_classifier = EyeStateClassifier()
+
         cap, fuente_actual = self._abrir_fuente(self.camera_index)
         self.source_active.emit(fuente_actual)
-        fallos_lectura = 0
+        
+        # fallos_lectura = 0
 
         try:
             with mp_face_mesh.FaceMesh(
@@ -108,7 +114,9 @@ class VideoWorker(QThread):
                         if cap is not None:
                             cap.release()
                         cap, fuente_actual = self._abrir_fuente(nueva_fuente)
-                        fallos_lectura = 0
+        
+                        # fallos_lectura = 0
+        
                         self.source_active.emit(fuente_actual)
 
                     if cap is None or not cap.isOpened():
@@ -125,26 +133,26 @@ class VideoWorker(QThread):
                             self.msleep(30)
                             continue
 
-                        fallos_lectura += 1
+                        # fallos_lectura += 1
 
                         # ~0.5 s de fallos seguidos = cámara desconectada
-                        if fallos_lectura >= 10:
-                            cap.release()
-                            cap = None
-                            fallos_lectura = 0
+                        # if fallos_lectura >= 10:
+                        #     cap.release()
+                        #     cap = None
+                        #     fallos_lectura = 0
 
-                            if fuente_actual != 0:
-                                cap, fuente_actual = self._abrir_fuente(0)
-                            else:
-                                fuente_actual = None
+                        #     if fuente_actual != 0:
+                        #         cap, fuente_actual = self._abrir_fuente(0)
+                        #     else:
+                        #         fuente_actual = None
 
-                            self.source_active.emit(fuente_actual)
+                        #     self.source_active.emit(fuente_actual)
                         
                         # Si es cámara, espera brevemente a que se recupere o cambie la fuente
                         self.msleep(50)
                         continue
 
-                    fallos_lectura = 0
+                    # fallos_lectura = 0
 
                     # Efecto espejo solo en cámaras en vivo
                     if isinstance(fuente_actual, int):
@@ -162,6 +170,7 @@ class VideoWorker(QThread):
                     mar_actual = -1.0
                     pitch_actual = 0.0
                     yaw_actual = 0.0
+                    prob_cierre_actual = -1.0
 
                     if results.multi_face_landmarks:
                         h, w, _ = image.shape
@@ -189,6 +198,12 @@ class VideoWorker(QThread):
                                 h
                             )
 
+                            # Clasificar ojos ANTES de dibujar la malla facial
+                            prob_cierre_actual, _, _ = eye_classifier.predecir_probabilidad_cierre(
+                                image, 
+                                face_landmarks
+                            )
+
                             # Dibujar la malla facial
                             mp_drawing.draw_landmarks(
                                 image = image,
@@ -204,7 +219,8 @@ class VideoWorker(QThread):
                         ear_actual,
                         mar_actual,
                         pitch_actual,
-                        yaw_actual
+                        yaw_actual,
+                        prob_cierre_actual
                     )
 
         finally:
