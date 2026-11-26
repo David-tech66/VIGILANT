@@ -79,10 +79,13 @@ class MainWindow(QMainWindow):
         self._cerrando = False
         self._pagina_actual = 0
 
-        # Control de alertas sonoras
+        # Control de alertas sonoras (escalamiento en 2 fases para microsueño)
         self.audio_silenciado = False
         self.sonido_fatiga = None
+        self.sonido_voz_critica = None
         self.sonido_critico = None
+        self._fase_critica = 0  # 0: inactivo, 1: voz (3 veces), 2: sirena continua
+        self._voz_critica_activa = False
 
         self._inicializar_base_datos()
         self._inicializar_audio()
@@ -113,7 +116,7 @@ class MainWindow(QMainWindow):
         self.db.commit()
 
     # ==========================================================
-    # SISTEMA DE AUDIO (QSoundEffect)
+    # SISTEMA DE AUDIO (QSoundEffect + Escalamiento 2 Fases)
     # ==========================================================
     def _inicializar_audio(self):
         if not AUDIO_DISPONIBLE:
@@ -122,18 +125,37 @@ class MainWindow(QMainWindow):
 
         carpeta_audio = self.raiz_proyecto / "assets" / "audio"
         ruta_fatiga = carpeta_audio / "aviso_fatiga.wav"
+        ruta_voz_critica = carpeta_audio / "voz_critica.wav"
         ruta_critica = carpeta_audio / "alerta_critica.wav"
 
         if ruta_fatiga.exists():
             self.sonido_fatiga = QSoundEffect(self)
+            self.sonido_fatiga.statusChanged.connect(
+                lambda: self._verificar_estado_audio(self.sonido_fatiga, ruta_fatiga.name)
+            )
             self.sonido_fatiga.setSource(QUrl.fromLocalFile(str(ruta_fatiga)))
             self.sonido_fatiga.setLoopCount(1)
             self.sonido_fatiga.setVolume(0.85)
         else:
             print(f"[VIGILANT] Aviso: no se encontró {ruta_fatiga}")
 
+        if ruta_voz_critica.exists():
+            self.sonido_voz_critica = QSoundEffect(self)
+            self.sonido_voz_critica.statusChanged.connect(
+                lambda: self._verificar_estado_audio(self.sonido_voz_critica, ruta_voz_critica.name)
+            )
+            self.sonido_voz_critica.setSource(QUrl.fromLocalFile(str(ruta_voz_critica)))
+            self.sonido_voz_critica.setLoopCount(3)
+            self.sonido_voz_critica.setVolume(1.0)
+            self.sonido_voz_critica.playingChanged.connect(self._on_voz_critica_estado_cambiado)
+        else:
+            print(f"[VIGILANT] Aviso: no se encontró {ruta_voz_critica} (se usará sirena directa)")
+
         if ruta_critica.exists():
             self.sonido_critico = QSoundEffect(self)
+            self.sonido_critico.statusChanged.connect(
+                lambda: self._verificar_estado_audio(self.sonido_critico, ruta_critica.name)
+            )
             self.sonido_critico.setSource(QUrl.fromLocalFile(str(ruta_critica)))
             loop_infinito = (
                 QSoundEffect.Loop.Infinite.value
@@ -145,7 +167,47 @@ class MainWindow(QMainWindow):
         else:
             print(f"[VIGILANT] Aviso: no se encontró {ruta_critica}")
 
+    @staticmethod
+    def _verificar_estado_audio(efecto, nombre_archivo):
+        if efecto is not None and efecto.status() == QSoundEffect.Status.Error:
+            print(
+                f"[VIGILANT] Error al cargar {nombre_archivo}: "
+                "verifica que sea WAV PCM 16-bit válido."
+            )
+
+    def _on_voz_critica_estado_cambiado(self):
+        if self.sonido_voz_critica is None:
+            return
+
+        if self.sonido_voz_critica.isPlaying():
+            self._voz_critica_activa = True
+            return
+
+        # Solo escalar a Fase 2 si terminó las 3 repeticiones de forma natural en la vista Inicio
+        if (
+            self._fase_critica == 1
+            and self._voz_critica_activa
+            and not self.audio_silenciado
+            and not self._cerrando
+            and self._pagina_actual == 0
+        ):
+            self._voz_critica_activa = False
+            self._fase_critica = 2
+            msg_escalado = "¡ALARMA CRÍTICA! Sin respuesta tras 3 avisos de voz"
+            if hasattr(self, "state_description"):
+                self.state_description.setText(msg_escalado)
+            if hasattr(self, "graph_description"):
+                self.graph_description.setText(msg_escalado)
+            if self.sonido_critico is not None and not self.sonido_critico.isPlaying():
+                self.sonido_critico.play()
+
     def _detener_alertas(self):
+        # Resetear fase ANTES de stop() para evitar escalamiento accidental
+        self._fase_critica = 0
+        self._voz_critica_activa = False
+
+        if self.sonido_voz_critica is not None and self.sonido_voz_critica.isPlaying():
+            self.sonido_voz_critica.stop()
         if self.sonido_critico is not None and self.sonido_critico.isPlaying():
             self.sonido_critico.stop()
         if self.sonido_fatiga is not None and self.sonido_fatiga.isPlaying():
@@ -161,13 +223,35 @@ class MainWindow(QMainWindow):
         if estado == DrowsinessAnalyzer.ESTADO_MICROSUEÑO:
             if self.sonido_fatiga is not None and self.sonido_fatiga.isPlaying():
                 self.sonido_fatiga.stop()
-            if self.sonido_critico is not None and not self.sonido_critico.isPlaying():
-                self.sonido_critico.play()
+
+            if self._fase_critica == 0:
+                voz_lista = (
+                    self.sonido_voz_critica is not None
+                    and self.sonido_voz_critica.status() != QSoundEffect.Status.Error
+                )
+                if voz_lista:
+                    self._fase_critica = 1
+                    self._voz_critica_activa = False
+                    self.sonido_voz_critica.play()
+                elif self.sonido_critico is not None:
+                    # Respaldo directo si falta o falla voz_critica.wav
+                    self._fase_critica = 2
+                    self.sonido_critico.play()
+            elif self._fase_critica == 2:
+                if self.sonido_critico is not None and not self.sonido_critico.isPlaying():
+                    self.sonido_critico.play()
             return
 
-        if self.sonido_critico is not None and self.sonido_critico.isPlaying():
-            self.sonido_critico.stop()
+        # Al abrir los ojos, cortar inmediatamente cualquier fase crítica activa
+        if self._fase_critica != 0:
+            self._fase_critica = 0
+            self._voz_critica_activa = False
+            if self.sonido_voz_critica is not None and self.sonido_voz_critica.isPlaying():
+                self.sonido_voz_critica.stop()
+            if self.sonido_critico is not None and self.sonido_critico.isPlaying():
+                self.sonido_critico.stop()
 
+        # Nivel 1 (Fatiga temprana): sin escalamiento, 1 reproducción por incidente
         if (
             resultado["nuevo_incidente"]
             and resultado["tipo_incidente"] in ("Bostezo Prolongado", "Cabeceo")
@@ -746,6 +830,8 @@ class MainWindow(QMainWindow):
     def _on_volumen_cambiado(self, vol_fatiga, vol_critico):
         if self.sonido_fatiga is not None:
             self.sonido_fatiga.setVolume(vol_fatiga)
+        if self.sonido_voz_critica is not None:
+            self.sonido_voz_critica.setVolume(vol_critico)
         if self.sonido_critico is not None:
             self.sonido_critico.setVolume(vol_critico)
 
