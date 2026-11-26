@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
         self._ultimo_estilo_fatiga = None
         self._ultimo_estado_visual = None
         self._cerrando = False
+        self._pagina_actual = 0
 
         # Control de alertas sonoras
         self.audio_silenciado = False
@@ -307,13 +308,18 @@ class MainWindow(QMainWindow):
         return sidebar
 
     def _cambiar_pagina(self, indice):
+        if indice == self._pagina_actual:
+            return
+        self._pagina_actual = indice
+        if indice != 0:
+            self._detener_alertas()
         self.pages_stack.setCurrentIndex(indice)
         if 0 <= indice < len(self.nav_buttons):
             self.nav_buttons[indice].setChecked(True)
         if indice == 1:
-            self.reports_page.recargar_datos()
+            QTimer.singleShot(50, self.reports_page.recargar_datos)
         elif indice == 2:
-            self.settings_page.sincronizar_desde_analyzer()
+            QTimer.singleShot(50, self.settings_page.sincronizar_desde_analyzer)
 
     def _construir_header(self):
         header = QHBoxLayout()
@@ -699,7 +705,7 @@ class MainWindow(QMainWindow):
     # ==========================================================
     @Slot(np.ndarray, float, float, float, float, float)
     def actualizar_frame(self, frame, ear, mar, pitch, yaw, prob_cierre):
-        if self._cerrando:
+        if self._cerrando or self._pagina_actual != 0:
             return
 
         self._actualizar_fps()
@@ -829,7 +835,7 @@ class MainWindow(QMainWindow):
 
         self.historial_grafica.append(valor)
         self._contador_frames += 1
-        if self.graph is not None and (self._contador_frames % 2 == 0):
+        if self.graph is not None and (self._contador_frames % 4 == 0):
             self.curva_principal.setData(list(self.historial_grafica))
             self.linea_umbral.setValue(umbral_linea)
 

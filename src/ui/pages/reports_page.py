@@ -108,9 +108,9 @@ class ReportsPage(QWidget):
         self.table.setShowGrid(False)
 
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.Interactive)
         header.setSectionResizeMode(3, QHeaderView.Stretch)
 
         card_layout.addWidget(self.table, 1)
@@ -146,30 +146,42 @@ class ReportsPage(QWidget):
         self.kpi_bostezo.value_label.setText(str(n_bostezo))
         self.kpi_cabeceo.value_label.setText(str(n_cabeceo))
 
-        # 2. Llenar tabla filtrada
+        # 2. Llenar tabla filtrada sin bloquear eventos de Windows/Qt
         filtro = self.filter_combo.currentText()
         filas = self._obtener_filas(filtro)
 
-        self.table.setRowCount(len(filas))
         colores = {
             "Microsueño": QColor("#F87171"),
             "Bostezo Prolongado": QColor("#FBBF24"),
             "Cabeceo": QColor("#38BDF8"),
         }
 
-        for r_idx, (reg_id, fecha, hora, tipo) in enumerate(filas):
-            items = [
-                QTableWidgetItem(f"#{reg_id}"),
-                QTableWidgetItem(fecha),
-                QTableWidgetItem(hora),
-                QTableWidgetItem(tipo),
-            ]
-            for c_idx, item in enumerate(items):
-                if c_idx < 3:
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+        try:
+            self.table.clearContents()
+            self.table.setRowCount(len(filas))
+
+            for r_idx, (reg_id, fecha, hora, tipo) in enumerate(filas):
+                items = [
+                    QTableWidgetItem(f"#{reg_id}"),
+                    QTableWidgetItem(fecha),
+                    QTableWidgetItem(hora),
+                    QTableWidgetItem(tipo),
+                ]
+                for c_idx, item in enumerate(items):
                     item.setTextAlignment(Qt.AlignCenter)
-                if c_idx == 3 and tipo in colores:
-                    item.setForeground(colores[tipo])
-                self.table.setItem(r_idx, c_idx, item)
+                    if c_idx == 3 and tipo in colores:
+                        item.setForeground(colores[tipo])
+                    self.table.setItem(r_idx, c_idx, item)
+        finally:
+            self.table.blockSignals(False)
+            self.table.setUpdatesEnabled(True)
+
+        for col in range(3):
+            self.table.resizeColumnToContents(col)
+            self.table.setColumnWidth(col, self.table.columnWidth(col) + 24)
+        self.table.horizontalHeader().setStretchLastSection(True)
 
         self.footer_info.setText(f"Mostrando {len(filas)} de {total} incidentes registrados")
 
