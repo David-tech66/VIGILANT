@@ -24,7 +24,7 @@ class DrowsinessAnalyzer:
 
         # Umbrales IA (CNN ojos cerrados con histéresis)
         self.prob_umbral_cierre = 0.50
-        self.prob_umbral_apertura = 0.35
+        self.prob_umbral_apertura = 0.22
 
         # Factores de suavizado EMA
         self.alpha_geo = 0.35
@@ -189,16 +189,30 @@ class DrowsinessAnalyzer:
             )
 
         # 4. Detección de ojos cerrados (CNN principal / EAR respaldo) con histéresis
+        # Si la cabeza está inclinada hacia abajo (cabeceo), la perspectiva eleva
+        # falsamente la probabilidad de cierre; exigimos >= 85% para no pisar "Cabeceo".
+        cabeza_inclinada = self._pitch_ema < self.pitch_umbral
+
         if modo_ojos == "IA_CNN":
+            umbral_cierre_cnn = (
+                max(self.prob_umbral_cierre, 0.85)
+                if cabeza_inclinada
+                else self.prob_umbral_cierre
+            )
             if not self._ojos_cerrados:
-                if self._prob_ema >= self.prob_umbral_cierre:
+                if self._prob_ema >= umbral_cierre_cnn:
                     self._ojos_cerrados = True
             else:
                 if self._prob_ema < self.prob_umbral_apertura:
                     self._ojos_cerrados = False
         else:
+            umbral_ear_efectivo = (
+                self.ear_umbral * 0.85
+                if cabeza_inclinada
+                else self.ear_umbral
+            )
             if not self._ojos_cerrados:
-                if self._ear_ema < self.ear_umbral:
+                if self._ear_ema < umbral_ear_efectivo:
                     self._ojos_cerrados = True
             else:
                 if self._ear_ema > (self.ear_umbral + self.ear_histeresis):

@@ -1192,7 +1192,7 @@ class MainWindow(QMainWindow):
         colores = {
             "Microsueño": "#EF4444",
             "Bostezo Prolongado": "#F59E0B",
-            "Cabeceo": "#38BDF8",
+            "Cabeceo": "#F59E0B",
         }
         color = colores.get(tipo, "#22C55E")
         item = QListWidgetItem(
